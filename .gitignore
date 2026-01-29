@@ -1,0 +1,56 @@
+# Android
+*.iml
+.gradle
+/local.properties
+/.idea/
+.DS_Store
+/build
+/captures
+.externalNativeBuild
+.cxx
+*.apk
+*.ap_
+*.dex
+*.class
+bin/
+gen/
+out/
+
+# Gradle
+.gradle/
+build/
+
+# Local configuration file (sdk path, etc)
+local.properties
+
+# Log Files
+*.log
+
+# Android Studio
+*.iml
+.idea/
+.gradle/
+local.properties
+*.hprof
+
+# Firebase
+google-services.json
+firebase-debug.log
+.firebase/
+
+# Node modules (for Firebase Functions)
+GuardianAI/firebase_functions/node_modules/
+node_modules/
+
+# Build outputs
+*.txt
+!gradle-wrapper.jar
+
+# Sensitive files
+keystore.properties
+*.jks
+*.keystore
+
+# OS files
+.DS_Store
+Thumbs.db
