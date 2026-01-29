@@ -18,6 +18,12 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
+import app.shouldersofgiants.guardian.Constants
 import app.shouldersofgiants.guardian.viewmodel.GuardianViewModel
 
 @Composable
@@ -34,6 +40,37 @@ fun LoginScreen(
     var isLoading by rememberSaveable { mutableStateOf(false) }
 
     val context = LocalContext.current
+
+    // Google Sign-In Setup
+    val gso = remember {
+        GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+            .requestIdToken(Constants.WEB_CLIENT_ID)
+            .requestEmail()
+            .build()
+    }
+    val googleSignInClient = remember { GoogleSignIn.getClient(context, gso) }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.StartActivityForResult(),
+        onResult = { result ->
+            if (result.resultCode == Activity.RESULT_OK) {
+                val task = GoogleSignIn.getSignedInAccountFromIntent(result.data)
+                try {
+                    val account = task.getResult(ApiException::class.java)
+                    account.idToken?.let { idToken ->
+                        isLoading = true
+                        viewModel.signInWithGoogle(idToken) { success ->
+                            isLoading = false
+                            if (success) onLoginSuccess()
+                            else Toast.makeText(context, "Google Sign-In Failed", Toast.LENGTH_SHORT).show()
+                        }
+                    }
+                } catch (e: ApiException) {
+                    Toast.makeText(context, "Google Sign-In Error: ${e.message}", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    )
 
     val brush = Brush.verticalGradient(
         colors = listOf(Color(0xFF1A1A1A), Color(0xFF0D0D0D))
@@ -71,7 +108,9 @@ fun LoginScreen(
                     AuthChoices(
                         onPhoneClick = { authMode = "phone" },
                         onEmailClick = { authMode = "email_sign_in" },
-                        onGoogleClick = { triggerGoogleSignIn(context, viewModel, onLoginSuccess) }
+                        onGoogleClick = { 
+                            launcher.launch(googleSignInClient.signInIntent) 
+                        }
                     )
                 }
                 "phone" -> {
@@ -305,10 +344,6 @@ fun EmailAuthUI(
             Text("Back to Methods", color = Color.LightGray)
         }
     }
-}
-
-fun triggerGoogleSignIn(context: android.content.Context, viewModel: GuardianViewModel, onLoginSuccess: () -> Unit) {
-    Toast.makeText(context, "Google Sign-In Triggered", Toast.LENGTH_SHORT).show()
 }
 
 @Composable

@@ -4,45 +4,49 @@ import android.os.Bundle
 import android.content.Intent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.runtime.collectAsState
+import androidx.lifecycle.viewmodel.compose.viewModel
 import app.shouldersofgiants.guardian.ui.MainScreen
+import app.shouldersofgiants.guardian.ui.RoleSelectionScreen
 import app.shouldersofgiants.guardian.ui.theme.GuardianAITheme
+import app.shouldersofgiants.guardian.viewmodel.GuardianViewModel
+import app.shouldersofgiants.guardian.data.UserRole
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContent {
             GuardianAITheme {
+                val viewModel: GuardianViewModel = viewModel()
+                val userProfile by viewModel.userProfile.collectAsState()
                 val currentUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
                 var isLoggedIn by remember { mutableStateOf(currentUser != null) }
                 
-                // Request Permissions
+                // Request Permissions (Location added for Map feature)
                 val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
                     androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
-                ) {
-                    // Check results if needed
-                }
+                ) {}
                 
                 androidx.compose.runtime.LaunchedEffect(Unit) {
+                    val permissions = mutableListOf(
+                        android.Manifest.permission.RECORD_AUDIO,
+                        android.Manifest.permission.ACCESS_FINE_LOCATION,
+                        android.Manifest.permission.ACCESS_COARSE_LOCATION
+                    )
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-                        permissionLauncher.launch(arrayOf(
-                            android.Manifest.permission.RECORD_AUDIO,
-                            android.Manifest.permission.POST_NOTIFICATIONS
-                        ))
-                    } else {
-                        permissionLauncher.launch(arrayOf(android.Manifest.permission.RECORD_AUDIO))
+                        permissions.add(android.Manifest.permission.POST_NOTIFICATIONS)
                     }
+                    permissionLauncher.launch(permissions.toTypedArray())
                 }
                 
-                // Check if launched from Panic Trigger
                 val initialScreen = if (intent?.action == "ACTION_TRIGGER_PANIC") "alert" else "main"
                 var currentScreen by remember { mutableStateOf(initialScreen) }
 
-                // Update screen if new intent arrives while active
                 DisposableEffect(Unit) {
                     val listener = androidx.core.util.Consumer<Intent> { newIntent ->
                         if (newIntent.action == "ACTION_TRIGGER_PANIC") {
@@ -54,26 +58,62 @@ class MainActivity : ComponentActivity() {
                 }
 
                 if (isLoggedIn) {
-                    when (currentScreen) {
-                        "main" -> MainScreen(
-                            onNavigateToContacts = { currentScreen = "contacts" },
-                            onPanicTrigger = { currentScreen = "alert" },
-                            onNavigateToDebug = { currentScreen = "debug" }
-                        )
-                        "contacts" -> app.shouldersofgiants.guardian.ui.ContactsScreen(onBack = { currentScreen = "main" })
-                        "alert" -> app.shouldersofgiants.guardian.ui.AlertScreen(
-                            onCancel = { currentScreen = "main" },
-                            onAlertSent = {
-                                // Keep them on the AlertScreen but in "SENT" state, 
-                                // or effectively the AlertScreen handles its own "SENT" UI, 
-                                // and the "Return to Safety" button there calls onCancel (which goes to main)
+                    when {
+                        userProfile == null -> {
+                            // Loading profile
+                            Box(Modifier.fillMaxSize(), Alignment.Center) {
+                                CircularProgressIndicator()
                             }
-                        )
-                        "debug" -> app.shouldersofgiants.guardian.ui.DebugScreen(onBack = { currentScreen = "main" })
+                        }
+                        userProfile?.role == UserRole.UNDECIDED -> {
+                            RoleSelectionScreen(viewModel = viewModel)
+                        }
+                        else -> {
+                            // Role-based navigation
+                            when (currentScreen) {
+                                "main" -> {
+                                    when (userProfile?.role) {
+                                        UserRole.MANAGER -> app.shouldersofgiants.guardian.ui.ManagerDashboard(
+                                            viewModel = viewModel,
+                                            onNavigateToDebug = { currentScreen = "debug" },
+                                            onNavigateToMap = { currentScreen = "map" }
+                                        )
+                                        UserRole.WATCHER -> app.shouldersofgiants.guardian.ui.WatcherDashboard(
+                                            viewModel = viewModel,
+                                            onNavigateToDebug = { currentScreen = "debug" },
+                                            onNavigateToMap = { currentScreen = "map" }
+                                        )
+                                        UserRole.PROTECTED -> MainScreen(
+                                            onNavigateToContacts = { currentScreen = "contacts" },
+                                            onPanicTrigger = { currentScreen = "alert" },
+                                            onNavigateToDebug = { currentScreen = "debug" },
+                                            viewModel = viewModel
+                                        )
+                                        else -> MainScreen(
+                                            onNavigateToContacts = { currentScreen = "contacts" },
+                                            onPanicTrigger = { currentScreen = "alert" },
+                                            onNavigateToDebug = { currentScreen = "debug" },
+                                            viewModel = viewModel
+                                        )
+                                    }
+                                }
+                                "contacts" -> app.shouldersofgiants.guardian.ui.ContactsScreen(onBack = { currentScreen = "main" })
+                                "alert" -> app.shouldersofgiants.guardian.ui.AlertScreen(onCancel = { currentScreen = "main" }, onAlertSent = {})
+                                "debug" -> app.shouldersofgiants.guardian.ui.DebugScreen(onBack = { currentScreen = "main" })
+                                "map" -> {
+                                    val alerts by viewModel.activeAlerts.collectAsState()
+                                    app.shouldersofgiants.guardian.ui.MapScreen(
+                                        activeAlerts = alerts,
+                                        onBack = { currentScreen = "main" }
+                                    )
+                                }
+                            }
+                        }
                     }
                 } else {
                     app.shouldersofgiants.guardian.ui.LoginScreen(onLoginSuccess = {
                         isLoggedIn = true
+                        viewModel.fetchUserProfile()
                     })
                 }
             }

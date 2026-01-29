@@ -95,27 +95,10 @@ fun MainScreen(
                 actions = {
                     IconButton(onClick = onNavigateToDebug) {
                         Icon(
-                            imageVector = Icons.Default.Info, // Using Info as bug might not be in default set immediately
+                            imageVector = Icons.Default.Info,
                             contentDescription = "Debug",
                             tint = MaterialTheme.colorScheme.tertiary
                         )
-                    }
-                    IconButton(onClick = onNavigateToContacts) {
-                        BadgedBox(
-                            badge = {
-                                if (contacts.isEmpty()) {
-                                    Badge { Text("!") }
-                                } else {
-                                    Badge { Text("${contacts.size}") }
-                                }
-                            }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Person,
-                                contentDescription = "Contacts",
-                                tint = MaterialTheme.colorScheme.primary
-                            )
-                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -137,11 +120,6 @@ fun MainScreen(
             // Status Card
             StatusCard(isListening = isListening)
 
-            // Family Network Summary
-            FamilyNetworkCard(
-                contactCount = contacts.size, 
-                onClick = onNavigateToContacts
-            )
 
             Spacer(modifier = Modifier.weight(1f))
 

@@ -17,6 +17,12 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import app.shouldersofgiants.guardian.MainActivity
 import app.shouldersofgiants.guardian.R
+import app.shouldersofgiants.guardian.data.TriggerPhrase
+import app.shouldersofgiants.guardian.data.TriggerSeverity
+import com.google.firebase.Firebase
+import com.google.firebase.auth.FirebaseAuth
+import com.google.firebase.firestore.ListenerRegistration
+import com.google.firebase.firestore.firestore
 import java.util.Locale
 
 class SafetyService : Service(), RecognitionListener {
@@ -24,6 +30,9 @@ class SafetyService : Service(), RecognitionListener {
     private var speechRecognizer: SpeechRecognizer? = null
     private var isListening = false
     private lateinit var speechIntent: Intent
+    private var familyId: String? = null
+    private var triggerPhrases = mutableListOf<TriggerPhrase>()
+    private var listenerRegistration: ListenerRegistration? = null
 
     companion object {
         const val CHANNEL_ID = "GuardianServiceChannel"
@@ -54,12 +63,46 @@ class SafetyService : Service(), RecognitionListener {
 
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Guardian AI Active")
-            .setContentText("Listening for 'Help'...")
+            .setContentText("Listening for safety triggers...")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
             .build()
 
         startForeground(1, notification)
+        
+        // Load Family and Triggers
+        val userId = FirebaseAuth.getInstance().currentUser?.uid
+        if (userId != null) {
+            val db = Firebase.firestore
+            db.collection("users").document(userId).get().addOnSuccessListener { userDoc ->
+                familyId = userDoc.getString("familyId")
+                familyId?.let { fid ->
+                    listenerRegistration = db.collection("families").document(fid)
+                        .addSnapshotListener { snapshot, _ ->
+                            if (snapshot != null && snapshot.exists()) {
+                                val triggerData = snapshot.get("triggerPhrases") as? List<Map<String, Any>>
+                                triggerPhrases.clear()
+                                if (triggerData != null) {
+                                    for (map in triggerData) {
+                                        triggerPhrases.add(TriggerPhrase(
+                                            phrase = map["phrase"] as? String ?: "",
+                                            severity = TriggerSeverity.valueOf(
+                                                map["severity"] as? String ?: "CRITICAL"
+                                            )
+                                        ))
+                                    }
+                                } else {
+                                    // Default fallbacks
+                                    triggerPhrases.add(TriggerPhrase("help", TriggerSeverity.CRITICAL))
+                                    triggerPhrases.add(TriggerPhrase("emergency", TriggerSeverity.CRITICAL))
+                                }
+                                broadcastLog("Loaded ${triggerPhrases.size} trigger phrases")
+                            }
+                        }
+                }
+            }
+        }
+        
         initSpeechRecognizer()
         isListening = true
         broadcastLog("Service Started")
@@ -67,6 +110,7 @@ class SafetyService : Service(), RecognitionListener {
 
     private fun stopForegroundService() {
         isListening = false
+        listenerRegistration?.remove()
         speechRecognizer?.destroy()
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
@@ -74,37 +118,20 @@ class SafetyService : Service(), RecognitionListener {
     }
 
     private fun initSpeechRecognizer() {
-        broadcastLog("Checking speech recognition availability...")
-        
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            broadcastLog("ERROR: Speech Recognition NOT available on device")
-            return
-        }
-        
-        broadcastLog("Speech Recognition Available: Initializing...")
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) return
         
         try {
-            // Try on-device recognizer first (Android 13+, more reliable in foreground services)
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 if (SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
-                    broadcastLog("Using ON-DEVICE recognizer (Android 13+)")
                     speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
                 } else {
-                    broadcastLog("On-device not available, using cloud recognizer")
                     speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
                 }
             } else {
-                broadcastLog("Using cloud recognizer (Android < 13)")
                 speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this)
             }
             
-            if (speechRecognizer == null) {
-                broadcastLog("ERROR: SpeechRecognizer is NULL after creation!")
-                return
-            }
-            
             speechRecognizer?.setRecognitionListener(this)
-            broadcastLog("RecognitionListener attached")
             
             speechIntent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH).apply {
                 putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
@@ -113,103 +140,48 @@ class SafetyService : Service(), RecognitionListener {
                 putExtra(RecognizerIntent.EXTRA_CALLING_PACKAGE, packageName)
                 putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 3)
             }
-            broadcastLog("SpeechIntent configured")
             
-            // Small delay to let the recognizer settle
             android.os.Handler(mainLooper).postDelayed({
                 startListening()
             }, 500)
             
         } catch (e: Exception) {
-            broadcastLog("Init EXCEPTION: ${e.javaClass.simpleName}: ${e.message}")
             Log.e("SafetyService", "initSpeechRecognizer error", e)
         }
     }
 
     private fun startListening() {
-        if (!isListening) {
-            broadcastLog("startListening() skipped: isListening=false")
-            return
-        }
-        
-        if (speechRecognizer == null) {
-            broadcastLog("startListening() ERROR: speechRecognizer is NULL!")
-            return
-        }
-        
+        if (!isListening || speechRecognizer == null) return
         try {
             android.os.Handler(mainLooper).post {
-                try {
-                    broadcastLog("Calling speechRecognizer.startListening()...")
-                    speechRecognizer?.startListening(speechIntent)
-                    broadcastLog("startListening() called successfully - awaiting callback")
-                } catch (e: Exception) {
-                    broadcastLog("startListening INNER ERROR: ${e.message}")
-                }
+                speechRecognizer?.startListening(speechIntent)
             }
         } catch (e: Exception) {
             Log.e("SafetyService", "startListening error", e)
-            broadcastLog("startListening OUTER ERROR: ${e.message}")
         }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     // RecognitionListener Callbacks
-    override fun onReadyForSpeech(params: Bundle?) {
-        broadcastLog("Status: Ready for speech (Mic Open)")
-        Log.d("SafetyService", "onReadyForSpeech")
-    }
-    
-    override fun onBeginningOfSpeech() {
-        broadcastLog("Status: Speech detected...")
-        Log.d("SafetyService", "onBeginningOfSpeech")
-    }
-    
-    override fun onRmsChanged(rmsdB: Float) {
-        // Too noisy to broadcast, but confirms audio input
-    }
+    override fun onReadyForSpeech(params: Bundle?) {}
+    override fun onBeginningOfSpeech() {}
+    override fun onRmsChanged(rmsdB: Float) {}
     override fun onBufferReceived(buffer: ByteArray?) {}
-    
-    override fun onEndOfSpeech() {
-        if (isListening) {
-             startListening()
-        }
-    }
+    override fun onEndOfSpeech() { if (isListening) startListening() }
 
     override fun onError(error: Int) {
-        val errorMessage = when(error) {
-            SpeechRecognizer.ERROR_NO_MATCH -> "No match"
-            SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "Timeout"
-            SpeechRecognizer.ERROR_RECOGNIZER_BUSY -> "Busy"
-            SpeechRecognizer.ERROR_INSUFFICIENT_PERMISSIONS -> "No Perms"
-            SpeechRecognizer.ERROR_CLIENT -> "Client Error"
-            SpeechRecognizer.ERROR_NETWORK -> "Network Error"
-            else -> "Error $error"
-        }
-        
-        Log.d("SafetyService", "Speech Error: $errorMessage")
-        broadcastLog("Error: $errorMessage")
-        
-        // Only update notification for critical errors to avoid flicker
-        if (error != SpeechRecognizer.ERROR_NO_MATCH && error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT) {
-             updateNotification("Retry: $errorMessage")
-        }
-
-        // Restart on error (with backoff if needed, but simple restart for now)
         if (isListening) {
              android.os.Handler(mainLooper).postDelayed({
                  startListening()
-             }, 1000) // 1s delay to prevent tight loop on persistent errors
+             }, 1000)
         }
     }
 
     override fun onResults(results: Bundle?) {
         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
         processMatches(matches)
-        if (isListening) {
-            startListening()
-        }
+        if (isListening) startListening()
     }
 
     override fun onPartialResults(partialResults: Bundle?) {
@@ -220,23 +192,47 @@ class SafetyService : Service(), RecognitionListener {
     private fun processMatches(matches: ArrayList<String>?) {
         matches?.let {
             if (it.isNotEmpty()) {
-                val phrase = it[0]
-                // Only broadcast if it's substantial
-                if (phrase.length > 2) {
-                    updateNotification("Heard: \"$phrase\"")
-                    broadcastLog("Heard: \"$phrase\"")
+                val bestMatch = it[0]
+                if (bestMatch.length > 2) {
+                    broadcastLog("Heard: \"$bestMatch\"")
                 }
                 
                 for (match in it) {
-                    if (match.contains("help", ignoreCase = true) || 
-                        match.contains("emergency", ignoreCase = true)) {
-                        broadcastLog("MATCH FOUND: \"$match\" -> TRIGGERING ALERT")
-                        triggerAlert()
-                        break
+                    val lowerMatch = match.lowercase()
+                    for (trigger in triggerPhrases) {
+                        if (lowerMatch.contains(trigger.phrase.lowercase())) {
+                            broadcastLog("MATCH FOUND: \"$match\" triggered \"${trigger.phrase}\" (${trigger.severity})")
+                            handleTrigger(trigger)
+                            return
+                        }
                     }
                 }
             }
         }
+    }
+
+    private fun handleTrigger(trigger: TriggerPhrase) {
+        if (trigger.severity == TriggerSeverity.CRITICAL) {
+            triggerAlert()
+        } else {
+            sendNotice(trigger.phrase)
+        }
+    }
+
+    private fun sendNotice(phrase: String) {
+        val userId = FirebaseAuth.getInstance().currentUser?.uid ?: "UNKNOWN"
+        val notice = hashMapOf(
+            "type" to "NOTICE",
+            "trigger" to phrase,
+            "timestamp" to java.util.Date(),
+            "userId" to userId,
+            "familyId" to familyId
+        )
+        Firebase.firestore.collection("alerts").add(notice)
+            .addOnSuccessListener { 
+                broadcastLog("Notice sent to family: $phrase")
+                updateNotification("Notice sent: $phrase")
+            }
     }
 
     private fun broadcastLog(message: String) {
@@ -260,8 +256,6 @@ class SafetyService : Service(), RecognitionListener {
     override fun onEvent(eventType: Int, params: Bundle?) {}
 
     private fun triggerAlert() {
-        Log.d("SafetyService", "ALERT TRIGGERED!")
-        
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             action = "ACTION_TRIGGER_PANIC"

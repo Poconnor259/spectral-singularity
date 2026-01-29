@@ -7,6 +7,7 @@ import app.shouldersofgiants.guardian.service.SafetyService
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import android.location.Location
 
 class GuardianViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -21,13 +22,66 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
 
     val voiceLogs: StateFlow<List<String>> = app.shouldersofgiants.guardian.data.LogRepository.logs
 
+    private val _userProfile = MutableStateFlow<app.shouldersofgiants.guardian.data.UserProfile?>(null)
+    val userProfile: StateFlow<app.shouldersofgiants.guardian.data.UserProfile?> = _userProfile.asStateFlow()
+
+    private val _family = MutableStateFlow<app.shouldersofgiants.guardian.data.Family?>(null)
+    val family: StateFlow<app.shouldersofgiants.guardian.data.Family?> = _family.asStateFlow()
+
     init {
-        loadContacts()
+        fetchUserProfile()
+    }
+
+    fun fetchUserProfile() {
+        val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+        if (user != null) {
+            app.shouldersofgiants.guardian.data.GuardianRepository.getUserProfile(user.uid) { profile ->
+                _userProfile.value = profile ?: app.shouldersofgiants.guardian.data.UserProfile(
+                    id = user.uid,
+                    email = user.email ?: ""
+                )
+                
+                // If they have a family, load family details and contacts
+                profile?.familyId?.let { fid ->
+                    loadFamily(fid)
+                    loadContacts()
+                }
+            }
+        }
+    }
+
+    private val _activeAlerts = MutableStateFlow<List<app.shouldersofgiants.guardian.data.Alert>>(emptyList())
+    val activeAlerts: StateFlow<List<app.shouldersofgiants.guardian.data.Alert>> = _activeAlerts.asStateFlow()
+
+    private fun loadFamily(familyId: String) {
+        app.shouldersofgiants.guardian.data.GuardianRepository.getFamily(familyId) { family ->
+            _family.value = family
+            // Start listening for alerts in this family
+            app.shouldersofgiants.guardian.data.GuardianRepository.getActiveAlertsForFamily(familyId) { alerts ->
+                _activeAlerts.value = alerts
+            }
+        }
     }
 
     private fun loadContacts() {
         app.shouldersofgiants.guardian.data.GuardianRepository.getContacts { list ->
             _contacts.value = list
+        }
+    }
+
+    fun createFamily(name: String, onError: (String) -> Unit = {}) {
+        val userId = _userProfile.value?.id ?: return
+        app.shouldersofgiants.guardian.data.GuardianRepository.createFamily(name, userId) { fid ->
+            if (fid != null) fetchUserProfile()
+            else onError("Failed to create family")
+        }
+    }
+
+    fun joinFamily(inviteCode: String, role: app.shouldersofgiants.guardian.data.UserRole, onError: (String) -> Unit = {}) {
+        val userId = _userProfile.value?.id ?: return
+        app.shouldersofgiants.guardian.data.GuardianRepository.joinFamily(inviteCode, userId, role) { success ->
+            if (success) fetchUserProfile()
+            else onError("Family not found or join failed")
         }
     }
 
@@ -102,13 +156,26 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
 
     fun sendPanicAlertNow(onCompleted: () -> Unit) {
         _alertStatus.value = "SENDING ALERT..."
-        app.shouldersofgiants.guardian.data.GuardianRepository.sendAlert("PANIC_BUTTON") { success ->
-            if (success) {
-                _alertStatus.value = "ALERT SENT!"
-            } else {
-                _alertStatus.value = "FAILED TO SEND"
+        
+        // Try to get last location before sending
+        val fusedLocationClient = com.google.android.gms.location.LocationServices.getFusedLocationProviderClient(getApplication<Application>())
+        try {
+            fusedLocationClient.lastLocation.addOnSuccessListener { loc: Location? ->
+                val lat = loc?.latitude
+                val lng = loc?.longitude
+                app.shouldersofgiants.guardian.data.GuardianRepository.sendAlert("PANIC_BUTTON", lat, lng) { alertId ->
+                    if (alertId != null) {
+                        _alertStatus.value = "ALERT SENT!"
+                    } else {
+                        _alertStatus.value = "FAILED TO SEND"
+                    }
+                    onCompleted()
+                }
             }
-            onCompleted()
+        } catch (e: SecurityException) {
+            app.shouldersofgiants.guardian.data.GuardianRepository.sendAlert("PANIC_BUTTON") { alertId ->
+                onCompleted()
+            }
         }
     }
 }
