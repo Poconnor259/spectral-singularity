@@ -8,6 +8,10 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import android.location.Location
+import androidx.lifecycle.viewModelScope
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import app.shouldersofgiants.guardian.data.UserRole
 
 class GuardianViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -71,15 +75,35 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
 
     fun createFamily(name: String, onError: (String) -> Unit = {}) {
         val userId = _userProfile.value?.id ?: return
+        
+        var completed = false
+        viewModelScope.launch {
+            delay(15000) // 15 second timeout
+            if (!completed) {
+                onError("Operation timed out. Please check your internet connection and Firebase configuration.")
+            }
+        }
+
         app.shouldersofgiants.guardian.data.GuardianRepository.createFamily(name, userId) { fid ->
+            completed = true
             if (fid != null) fetchUserProfile()
             else onError("Failed to create family")
         }
     }
 
-    fun joinFamily(inviteCode: String, role: app.shouldersofgiants.guardian.data.UserRole, onError: (String) -> Unit = {}) {
+    fun joinFamily(inviteCode: String, role: UserRole, onError: (String) -> Unit = {}) {
         val userId = _userProfile.value?.id ?: return
+        
+        var completed = false
+        viewModelScope.launch {
+            delay(15000) // 15 second timeout
+            if (!completed) {
+                onError("Operation timed out. Please check your internet connection.")
+            }
+        }
+
         app.shouldersofgiants.guardian.data.GuardianRepository.joinFamily(inviteCode, userId, role) { success ->
+            completed = true
             if (success) fetchUserProfile()
             else onError("Family not found or join failed")
         }
