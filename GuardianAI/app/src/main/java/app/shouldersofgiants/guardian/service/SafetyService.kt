@@ -70,7 +70,15 @@ class SafetyService : Service(), RecognitionListener {
 
         startForeground(1, notification)
         
-        // Load Family and Triggers
+        // Load initial triggers from local storage (Offline support)
+        val localTriggers = app.shouldersofgiants.guardian.data.GuardianRepository.getLocalTriggerPhrases(this)
+        if (localTriggers.isNotEmpty()) {
+            triggerPhrases.clear()
+            triggerPhrases.addAll(localTriggers)
+            broadcastLog("Loaded ${triggerPhrases.size} trigger phrases from LOCAL storage")
+        }
+
+        // Load Family and Triggers from Firestore
         val userId = FirebaseAuth.getInstance().currentUser?.uid
         if (userId != null) {
             val db = Firebase.firestore
@@ -81,10 +89,10 @@ class SafetyService : Service(), RecognitionListener {
                         .addSnapshotListener { snapshot, _ ->
                             if (snapshot != null && snapshot.exists()) {
                                 val triggerData = snapshot.get("triggerPhrases") as? List<Map<String, Any>>
-                                triggerPhrases.clear()
+                                val newPhrases = mutableListOf<TriggerPhrase>()
                                 if (triggerData != null) {
                                     for (map in triggerData) {
-                                        triggerPhrases.add(TriggerPhrase(
+                                        newPhrases.add(TriggerPhrase(
                                             phrase = map["phrase"] as? String ?: "",
                                             severity = TriggerSeverity.valueOf(
                                                 map["severity"] as? String ?: "CRITICAL"
@@ -93,10 +101,17 @@ class SafetyService : Service(), RecognitionListener {
                                     }
                                 } else {
                                     // Default fallbacks
-                                    triggerPhrases.add(TriggerPhrase("help", TriggerSeverity.CRITICAL))
-                                    triggerPhrases.add(TriggerPhrase("emergency", TriggerSeverity.CRITICAL))
+                                    newPhrases.add(TriggerPhrase("help", TriggerSeverity.CRITICAL))
+                                    newPhrases.add(TriggerPhrase("emergency", TriggerSeverity.CRITICAL))
                                 }
-                                broadcastLog("Loaded ${triggerPhrases.size} trigger phrases")
+                                
+                                triggerPhrases.clear()
+                                triggerPhrases.addAll(newPhrases)
+                                
+                                // Save to local storage for next time
+                                app.shouldersofgiants.guardian.data.GuardianRepository.saveLocalTriggerPhrases(this, triggerPhrases)
+                                
+                                broadcastLog("Loaded ${triggerPhrases.size} trigger phrases from FIRESTORE (Synced)")
                             }
                         }
                 }
