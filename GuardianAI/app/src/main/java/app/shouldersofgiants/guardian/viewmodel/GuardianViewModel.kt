@@ -42,7 +42,8 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
             app.shouldersofgiants.guardian.data.GuardianRepository.getUserProfile(user.uid) { profile ->
                 _userProfile.value = profile ?: app.shouldersofgiants.guardian.data.UserProfile(
                     id = user.uid,
-                    email = user.email ?: ""
+                    email = user.email ?: "",
+                    role = UserRole.UNDECIDED  // Explicitly set to UNDECIDED for new users
                 )
                 
                 // If they have a family, load family details and contacts
@@ -199,6 +200,15 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
         } catch (e: SecurityException) {
             app.shouldersofgiants.guardian.data.GuardianRepository.sendAlert("PANIC_BUTTON") { alertId ->
                 onCompleted()
+            }
+        }
+    }
+
+    fun updateTriggerPhrases(phrases: List<app.shouldersofgiants.guardian.data.TriggerPhrase>) {
+        val familyId = _family.value?.id ?: return
+        app.shouldersofgiants.guardian.data.GuardianRepository.updateTriggerPhrases(familyId, phrases) { success ->
+            if (success) {
+                loadFamily(familyId)
             }
         }
     }

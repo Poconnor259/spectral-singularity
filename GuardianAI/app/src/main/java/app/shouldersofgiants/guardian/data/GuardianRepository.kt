@@ -1,6 +1,7 @@
 package app.shouldersofgiants.guardian.data
 
 import android.util.Log
+import android.content.Context
 import com.google.firebase.Firebase
 import com.google.firebase.firestore.firestore
 import com.google.firebase.firestore.SetOptions
@@ -239,18 +240,41 @@ object GuardianRepository {
         db.collection("families").document(familyId).get()
             .addOnSuccessListener { doc ->
                 if (doc.exists()) {
-                    // Manual parsing because of TriggerPhrase list
+                    val phrasesRaw = doc.get("triggerPhrases") as? List<Map<String, Any>>
+                    val phrases = phrasesRaw?.map {
+                        TriggerPhrase(
+                            phrase = it["phrase"] as? String ?: "",
+                            severity = TriggerSeverity.valueOf(it["severity"] as? String ?: TriggerSeverity.CRITICAL.name)
+                        )
+                    } ?: listOf(
+                        TriggerPhrase("Help", TriggerSeverity.CRITICAL),
+                        TriggerPhrase("Emergency", TriggerSeverity.CRITICAL)
+                    )
+
                     val family = Family(
                         id = doc.id,
                         name = doc.getString("name") ?: "",
                         managerId = doc.getString("managerId") ?: "",
-                        inviteCode = doc.getString("inviteCode") ?: ""
-                        // Triggers can be expanded here
+                        inviteCode = doc.getString("inviteCode") ?: "",
+                        triggerPhrases = phrases
                     )
                     callback(family)
                 } else callback(null)
             }
-            .addOnFailureListener { callback(null) }
+            .addOnFailureListener { e ->
+                Log.e("GuardianRepo", "Error getting family", e)
+                callback(null)
+            }
+    }
+
+    fun updateTriggerPhrases(familyId: String, phrases: List<TriggerPhrase>, callback: (Boolean) -> Unit) {
+        db.collection("families").document(familyId)
+            .update("triggerPhrases", phrases)
+            .addOnSuccessListener { callback(true) }
+            .addOnFailureListener { e ->
+                Log.e("GuardianRepo", "Error updating trigger phrases", e)
+                callback(false)
+            }
     }
 
     fun saveContact(contact: Contact, callback: (Boolean) -> Unit) {
@@ -301,5 +325,35 @@ object GuardianRepository {
             .delete()
             .addOnSuccessListener { callback(true) }
             .addOnFailureListener { callback(false) }
+    }
+
+    // Local Storage for Offline Trigger Phrases
+    private const val PREFS_NAME = "guardian_prefs"
+    private const val KEY_TRIGGERS = "trigger_phrases"
+
+    fun saveLocalTriggerPhrases(context: Context, phrases: List<TriggerPhrase>) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val serialized = phrases.joinToString(",") { "${it.phrase}|${it.severity.name}" }
+        prefs.edit().putString(KEY_TRIGGERS, serialized).apply()
+        Log.d("GuardianRepo", "Saved ${phrases.size} triggers locally")
+    }
+
+    fun getLocalTriggerPhrases(context: Context): List<TriggerPhrase> {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val serialized = prefs.getString(KEY_TRIGGERS, null) ?: return emptyList()
+        if (serialized.isBlank()) return emptyList()
+        
+        return try {
+            serialized.split(",").map {
+                val parts = it.split("|")
+                TriggerPhrase(
+                    phrase = parts[0],
+                    severity = TriggerSeverity.valueOf(parts[1])
+                )
+            }
+        } catch (e: Exception) {
+            Log.e("GuardianRepo", "Error parsing local triggers", e)
+            emptyList()
+        }
     }
 }

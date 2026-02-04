@@ -3,6 +3,7 @@ package app.shouldersofgiants.guardian.ui
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.FloatingActionButton
@@ -56,11 +57,12 @@ fun MapScreen(
             }
         }
         
-        // Back button
+        // Back button - positioned below status bar
         FloatingActionButton(
             onClick = onBack,
             modifier = Modifier
                 .align(Alignment.TopStart)
+                .statusBarsPadding()
                 .padding(16.dp),
             containerColor = Color.White
         ) {
