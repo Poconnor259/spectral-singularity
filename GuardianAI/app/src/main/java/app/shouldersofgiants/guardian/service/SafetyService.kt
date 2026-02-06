@@ -131,41 +131,37 @@ class SafetyService : Service(), RecognitionListener {
         val userId = FirebaseAuth.getInstance().currentUser?.uid
         if (userId != null) {
             val db = Firebase.firestore
-            db.collection("users").document(userId).get().addOnSuccessListener { userDoc ->
-                familyId = userDoc.getString("familyId")
-                trackingMode = userDoc.getString("locationTrackingMode") ?: "ALERT_ONLY"
-                familyId?.let { fid ->
-                    listenerRegistration = db.collection("families").document(fid)
-                        .addSnapshotListener { snapshot, _ ->
-                            if (snapshot != null && snapshot.exists()) {
-                                val triggerData = snapshot.get("triggerPhrases") as? List<Map<String, Any>>
-                                val newPhrases = mutableListOf<TriggerPhrase>()
-                                if (triggerData != null) {
-                                    for (map in triggerData) {
-                                        newPhrases.add(TriggerPhrase(
-                                            phrase = map["phrase"] as? String ?: "",
-                                            severity = TriggerSeverity.valueOf(
-                                                map["severity"] as? String ?: "CRITICAL"
-                                            )
-                                        ))
-                                    }
-                                } else {
-                                    // Default fallbacks
-                                    newPhrases.add(TriggerPhrase("help", TriggerSeverity.CRITICAL))
-                                    newPhrases.add(TriggerPhrase("emergency", TriggerSeverity.CRITICAL))
-                                }
-                                
-                                triggerPhrases.clear()
-                                triggerPhrases.addAll(newPhrases)
-                                
-                                // Save to local storage for next time
-                                app.shouldersofgiants.guardian.data.GuardianRepository.saveLocalTriggerPhrases(this, triggerPhrases)
-                                
-                                broadcastLog("Loaded ${triggerPhrases.size} trigger phrases from FIRESTORE (Synced)")
+            listenerRegistration = db.collection("users").document(userId)
+                .addSnapshotListener { snapshot, _ ->
+                    if (snapshot != null && snapshot.exists()) {
+                        trackingMode = snapshot.getString("locationTrackingMode") ?: "ALERT_ONLY"
+                        val triggerData = snapshot.get("triggerPhrases") as? List<Map<String, Any>>
+                        
+                        val newPhrases = mutableListOf<TriggerPhrase>()
+                        if (triggerData != null && triggerData.isNotEmpty()) {
+                            for (map in triggerData) {
+                                newPhrases.add(TriggerPhrase(
+                                    phrase = map["phrase"] as? String ?: "",
+                                    severity = app.shouldersofgiants.guardian.data.TriggerSeverity.valueOf(
+                                        map["severity"] as? String ?: "CRITICAL"
+                                    )
+                                ))
                             }
+                        } else {
+                            // Default fallbacks if no triggers set for user
+                            newPhrases.add(TriggerPhrase("help", app.shouldersofgiants.guardian.data.TriggerSeverity.CRITICAL))
+                            newPhrases.add(TriggerPhrase("emergency", app.shouldersofgiants.guardian.data.TriggerSeverity.CRITICAL))
                         }
+                        
+                        triggerPhrases.clear()
+                        triggerPhrases.addAll(newPhrases)
+                        
+                        // Save to local storage for next time
+                        app.shouldersofgiants.guardian.data.GuardianRepository.saveLocalTriggerPhrases(this, triggerPhrases)
+                        
+                        broadcastLog("Loaded ${triggerPhrases.size} trigger phrases from USER profile (Synced)")
+                    }
                 }
-            }
         }
         
         initSpeechRecognizer()

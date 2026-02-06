@@ -195,31 +195,11 @@ fun MainScreen(
             }
 
             Spacer(modifier = Modifier.weight(1f))
-
-            // Bottom Settings Card
-            BackgroundMonitorCard(
-                isListening = isListening,
-                onToggle = { enabled ->
-                    if (enabled) {
-                        if (androidx.core.content.ContextCompat.checkSelfPermission(
-                                context, 
-                                android.Manifest.permission.RECORD_AUDIO
-                            ) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                            viewModel.toggleListeningMode(true)
-                        } else {
-                            permissionLauncher.launch(android.Manifest.permission.RECORD_AUDIO)
-                        }
-                    } else {
-                        viewModel.toggleListeningMode(false)
-                    }
-                }
-            )
             
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
 }
-
 @Composable
 fun StatusCard(isListening: Boolean) {
     Card(
@@ -251,7 +231,7 @@ fun StatusCard(isListening: Boolean) {
                     color = MaterialTheme.colorScheme.onSurface
                 )
                 Text(
-                    text = if (isListening) "Listening for \"Help\"..." else "Manual activation only",
+                    text = if (isListening) "Listening for Help..." else "Manual activation only",
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -304,46 +284,6 @@ fun FamilyNetworkCard(contactCount: Int, onClick: () -> Unit) {
                 imageVector = Icons.Default.Settings,
                 contentDescription = "Edit",
                 tint = MaterialTheme.colorScheme.outline
-            )
-        }
-    }
-}
-
-@Composable
-fun BackgroundMonitorCard(isListening: Boolean, onToggle: (Boolean) -> Unit) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(28.dp), // Super rounded for pill look
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceColorAtElevation(3.dp)
-        )
-    ) {
-        Row(
-            modifier = Modifier
-                .padding(horizontal = 24.dp, vertical = 20.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween
-        ) {
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = "Background Monitor",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.Bold
-                )
-                Text(
-                    text = "Auto-detect cries for help",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-            }
-            Switch(
-                checked = isListening,
-                onCheckedChange = onToggle,
-                colors = SwitchDefaults.colors(
-                    checkedThumbColor = MaterialTheme.colorScheme.onPrimary,
-                    checkedTrackColor = MaterialTheme.colorScheme.primary
-                )
             )
         }
     }

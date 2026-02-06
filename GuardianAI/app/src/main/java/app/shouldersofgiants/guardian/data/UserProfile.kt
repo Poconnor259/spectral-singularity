@@ -11,5 +11,6 @@ data class UserProfile(
     val lastLng: Double? = null,
     val lastLocationUpdate: Long? = null,
     val locationTrackingMode: String = "ALERT_ONLY",
-    val listeningEnabled: Boolean = false
+    val listeningEnabled: Boolean = false,
+    val triggerPhrases: List<TriggerPhrase> = emptyList()
 )

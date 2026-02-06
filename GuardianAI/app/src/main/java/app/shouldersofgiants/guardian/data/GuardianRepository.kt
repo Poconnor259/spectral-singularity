@@ -191,7 +191,14 @@ object GuardianRepository {
                         lastLat = doc.getDouble("lastLat"),
                         lastLng = doc.getDouble("lastLng"),
                         lastLocationUpdate = doc.getLong("lastLocationUpdate"),
-                        locationTrackingMode = doc.getString("locationTrackingMode") ?: "ALERT_ONLY"
+                        locationTrackingMode = doc.getString("locationTrackingMode") ?: "ALERT_ONLY",
+                        listeningEnabled = doc.getBoolean("listeningEnabled") ?: false,
+                        triggerPhrases = (doc.get("triggerPhrases") as? List<Map<String, Any>>)?.map {
+                            TriggerPhrase(
+                                phrase = it["phrase"] as? String ?: "",
+                                severity = TriggerSeverity.valueOf(it["severity"] as? String ?: TriggerSeverity.CRITICAL.name)
+                            )
+                        } ?: emptyList()
                     )
                     callback(profile)
                 } else {
@@ -390,6 +397,16 @@ object GuardianRepository {
         }
     }
 
+    fun setLocalListeningEnabled(context: Context, enabled: Boolean) {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("listening_enabled", enabled).apply()
+    }
+
+    fun getLocalListeningEnabled(context: Context): Boolean {
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        return prefs.getBoolean("listening_enabled", false)
+    }
+
 
     fun updateUserRole(userId: String, newRole: UserRole, callback: (Boolean) -> Unit) {
         db.collection("users").document(userId)
@@ -397,6 +414,16 @@ object GuardianRepository {
             .addOnSuccessListener { callback(true) }
             .addOnFailureListener { e ->
                 Log.e("GuardianRepo", "Error updating user role", e)
+                callback(false)
+            }
+    }
+
+    fun updateMemberSetting(userId: String, field: String, value: Any, callback: (Boolean) -> Unit = {}) {
+        db.collection("users").document(userId)
+            .update(field, value)
+            .addOnSuccessListener { callback(true) }
+            .addOnFailureListener { e ->
+                Log.e("GuardianRepo", "Error updating member setting: $field", e)
                 callback(false)
             }
     }
@@ -479,7 +506,14 @@ object GuardianRepository {
                         lastLat = doc.getDouble("lastLat"),
                         lastLng = doc.getDouble("lastLng"),
                         lastLocationUpdate = doc.getLong("lastLocationUpdate"),
-                        locationTrackingMode = doc.getString("locationTrackingMode") ?: "ALERT_ONLY"
+                        locationTrackingMode = doc.getString("locationTrackingMode") ?: "ALERT_ONLY",
+                        listeningEnabled = doc.getBoolean("listeningEnabled") ?: false,
+                        triggerPhrases = (doc.get("triggerPhrases") as? List<Map<String, Any>>)?.map {
+                            TriggerPhrase(
+                                phrase = it["phrase"] as? String ?: "",
+                                severity = TriggerSeverity.valueOf(it["severity"] as? String ?: TriggerSeverity.CRITICAL.name)
+                            )
+                        } ?: emptyList()
                     )
                 } ?: emptyList()
                 callback(members)

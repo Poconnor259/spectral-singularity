@@ -41,6 +41,24 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
     init {
         fetchUserProfile()
         checkBatteryOptimization()
+        syncListeningToService()
+    }
+
+    private fun syncListeningToService() {
+        val context = getApplication<Application>()
+        val wasEnabledLocally = app.shouldersofgiants.guardian.data.GuardianRepository.getLocalListeningEnabled(context)
+        if (wasEnabledLocally) {
+            _isListening.value = true
+            // Start the service immediately on startup if it was left ON
+            val intent = Intent(context, SafetyService::class.java).apply {
+                action = SafetyService.ACTION_START
+            }
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                context.startForegroundService(intent)
+            } else {
+                context.startService(intent)
+            }
+        }
     }
 
     fun checkBatteryOptimization() {
@@ -65,6 +83,13 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
                     role = UserRole.UNDECIDED  // Explicitly set to UNDECIDED for new users
                 )
                 
+                // Sync listening state from profile if roles are matched
+                profile?.let { p ->
+                    if (p.listeningEnabled != _isListening.value) {
+                        toggleListeningMode(p.listeningEnabled, updateFirestore = false)
+                    }
+                }
+
                 // If they have a family, load family details and contacts
                 profile?.familyId?.let { fid ->
                     loadFamily(fid)
@@ -161,14 +186,25 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun toggleListeningMode(enabled: Boolean) {
+    fun toggleListeningMode(enabled: Boolean, updateFirestore: Boolean = true) {
+        if (_isListening.value == enabled) return
         _isListening.value = enabled
         
+        val context = getApplication<Application>()
+        // Save locally for offline start next time
+        app.shouldersofgiants.guardian.data.GuardianRepository.setLocalListeningEnabled(context, enabled)
+        
+        // Update Firestore if requested (and if we're not a PROTECTED user being remotely toggled)
+        if (updateFirestore && _userProfile.value?.role != UserRole.PROTECTED) {
+            _userProfile.value?.id?.let { uid ->
+                app.shouldersofgiants.guardian.data.GuardianRepository.updateMemberSetting(uid, "listeningEnabled", enabled)
+            }
+        }
+
         // Direct log to debug UI
         val state = if (enabled) "ON" else "OFF"
         app.shouldersofgiants.guardian.data.LogRepository.addLog("Toggle switched: $state")
 
-        val context = getApplication<Application>()
         val intent = Intent(context, SafetyService::class.java).apply {
             action = if (enabled) SafetyService.ACTION_START else SafetyService.ACTION_STOP
         }
@@ -180,6 +216,14 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
             }
         } else {
             context.startService(intent) 
+        }
+    }
+
+    fun updateMemberSetting(userId: String, field: String, value: Any) {
+        app.shouldersofgiants.guardian.data.GuardianRepository.updateMemberSetting(userId, field, value) { success ->
+            if (success && userId == _userProfile.value?.id) {
+                fetchUserProfile()
+            }
         }
     }
 

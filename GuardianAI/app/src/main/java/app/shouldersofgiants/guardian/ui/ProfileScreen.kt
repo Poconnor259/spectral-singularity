@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -18,7 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.shouldersofgiants.guardian.viewmodel.GuardianViewModel
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
 fun ProfileScreen(
     viewModel: GuardianViewModel = viewModel(),
@@ -96,6 +97,86 @@ fun ProfileScreen(
 
             Spacer(Modifier.height(24.dp))
 
+            // Background Monitor Section
+            val isProtected = userProfile?.role == app.shouldersofgiants.guardian.data.UserRole.PROTECTED
+            val isListening by viewModel.isListening.collectAsState()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Background Monitor",
+                        color = Color.White,
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold
+                    )
+                    Text(
+                        if (isProtected) "Controlled by Family Manager" else "Auto-detect cries for help",
+                        color = Color.Gray,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+                Switch(
+                    checked = isListening,
+                    onCheckedChange = { if (!isProtected) viewModel.toggleListeningMode(it) },
+                    enabled = !isProtected
+                )
+            }
+
+            Spacer(Modifier.height(24.dp))
+
+            Text(
+                "Trigger Words",
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.fillMaxWidth(),
+                fontWeight = FontWeight.Bold
+            )
+            Text(
+                "Words that activate the system",
+                color = Color.Gray,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.fillMaxWidth()
+            )
+
+            Spacer(Modifier.height(8.dp))
+
+            FlowRow(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                val phrases = userProfile?.triggerPhrases ?: emptyList()
+                if (phrases.isEmpty()) {
+                    AssistChip(
+                        onClick = {},
+                        label = { Text("Standard Defaults") },
+                        colors = AssistChipDefaults.assistChipColors(labelColor = Color.LightGray)
+                    )
+                } else {
+                    phrases.forEach { trigger ->
+                        AssistChip(
+                            onClick = {},
+                            label = { Text(trigger.phrase) },
+                            leadingIcon = {
+                                if (trigger.severity == app.shouldersofgiants.guardian.data.TriggerSeverity.CRITICAL) {
+                                    Icon(Icons.Default.Warning, "Critical", modifier = Modifier.size(14.dp), tint = Color.Red)
+                                }
+                            },
+                            colors = AssistChipDefaults.assistChipColors(
+                                labelColor = Color.White,
+                                containerColor = Color.DarkGray
+                            )
+                        )
+                    }
+                }
+            }
+
+            Spacer(Modifier.height(24.dp))
+
             Text(
                 "Location Tracking",
                 color = Color.White,
@@ -111,23 +192,27 @@ fun ProfileScreen(
                 horizontalArrangement = Arrangement.spacedBy(8.dp)
             ) {
                 FilterChip(
+                    enabled = !isProtected,
                     selected = userProfile?.locationTrackingMode == "ALERT_ONLY",
                     onClick = { viewModel.updateLocationTrackingMode("ALERT_ONLY") },
                     label = { Text("Alert Only") },
                     colors = FilterChipDefaults.filterChipColors(
                         labelColor = Color.LightGray,
                         selectedLabelColor = Color.White,
-                        selectedContainerColor = Color(0xFF4285F4)
+                        selectedContainerColor = Color(0xFF4285F4),
+                        disabledLabelColor = Color.DarkGray
                     )
                 )
                 FilterChip(
+                    enabled = !isProtected,
                     selected = userProfile?.locationTrackingMode == "ALWAYS",
                     onClick = { viewModel.updateLocationTrackingMode("ALWAYS") },
                     label = { Text("Always Track") },
                     colors = FilterChipDefaults.filterChipColors(
                         labelColor = Color.LightGray,
                         selectedLabelColor = Color.White,
-                        selectedContainerColor = Color(0xFF4285F4)
+                        selectedContainerColor = Color(0xFF4285F4),
+                        disabledLabelColor = Color.DarkGray
                     )
                 )
             }
