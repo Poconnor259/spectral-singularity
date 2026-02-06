@@ -22,7 +22,8 @@ import app.shouldersofgiants.guardian.viewmodel.GuardianViewModel
 fun WatcherDashboard(
     viewModel: GuardianViewModel = viewModel(),
     onNavigateToDebug: () -> Unit,
-    onNavigateToMap: () -> Unit
+    onNavigateToMap: () -> Unit,
+    onOpenDrawer: () -> Unit
 ) {
     val family by viewModel.family.collectAsState()
     val userProfile by viewModel.userProfile.collectAsState()
@@ -35,6 +36,11 @@ fun WatcherDashboard(
         topBar = {
             TopAppBar(
                 title = { Text("Family Watcher", color = Color.White) },
+                navigationIcon = {
+                    IconButton(onClick = onOpenDrawer) {
+                        Icon(imageVector = Icons.Default.Menu, contentDescription = "Menu", tint = Color.White)
+                    }
+                },
                 colors = TopAppBarDefaults.topAppBarColors(containerColor = Color(0xFF1A1A1A)),
                 actions = {
                     IconButton(onClick = onNavigateToDebug) {

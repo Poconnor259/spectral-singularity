@@ -94,6 +94,44 @@ fun ProfileScreen(
                 )
             )
 
+            Spacer(Modifier.height(24.dp))
+
+            Text(
+                "Location Tracking",
+                color = Color.White,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.fillMaxWidth(),
+                fontWeight = FontWeight.Bold
+            )
+            
+            Spacer(Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                FilterChip(
+                    selected = userProfile?.locationTrackingMode == "ALERT_ONLY",
+                    onClick = { viewModel.updateLocationTrackingMode("ALERT_ONLY") },
+                    label = { Text("Alert Only") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        labelColor = Color.LightGray,
+                        selectedLabelColor = Color.White,
+                        selectedContainerColor = Color(0xFF4285F4)
+                    )
+                )
+                FilterChip(
+                    selected = userProfile?.locationTrackingMode == "ALWAYS",
+                    onClick = { viewModel.updateLocationTrackingMode("ALWAYS") },
+                    label = { Text("Always Track") },
+                    colors = FilterChipDefaults.filterChipColors(
+                        labelColor = Color.LightGray,
+                        selectedLabelColor = Color.White,
+                        selectedContainerColor = Color(0xFF4285F4)
+                    )
+                )
+            }
+
             Spacer(Modifier.height(32.dp))
 
             Button(

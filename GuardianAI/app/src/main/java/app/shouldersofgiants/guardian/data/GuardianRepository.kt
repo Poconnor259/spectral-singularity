@@ -187,7 +187,11 @@ object GuardianRepository {
                         displayName = doc.getString("displayName") ?: "",
                         role = UserRole.valueOf(doc.getString("role") ?: UserRole.UNDECIDED.name),
                         familyId = doc.getString("familyId"),
-                        fcmToken = doc.getString("fcmToken")
+                        fcmToken = doc.getString("fcmToken"),
+                        lastLat = doc.getDouble("lastLat"),
+                        lastLng = doc.getDouble("lastLng"),
+                        lastLocationUpdate = doc.getLong("lastLocationUpdate"),
+                        locationTrackingMode = doc.getString("locationTrackingMode") ?: "ALERT_ONLY"
                     )
                     callback(profile)
                 } else {
@@ -386,29 +390,6 @@ object GuardianRepository {
         }
     }
 
-    fun getFamilyMembers(familyId: String, callback: (List<UserProfile>) -> Unit) {
-        db.collection("users")
-            .whereEqualTo("familyId", familyId)
-            .addSnapshotListener { snapshot, error ->
-                if (error != null) {
-                    Log.e("GuardianRepo", "Error fetching family members", error)
-                    callback(emptyList())
-                    return@addSnapshotListener
-                }
-                
-                val members = snapshot?.documents?.map { doc ->
-                    UserProfile(
-                        id = doc.id,
-                        email = doc.getString("email") ?: "",
-                        displayName = doc.getString("displayName") ?: "",
-                        role = UserRole.valueOf(doc.getString("role") ?: UserRole.UNDECIDED.name),
-                        familyId = doc.getString("familyId"),
-                        fcmToken = doc.getString("fcmToken")
-                    )
-                } ?: emptyList()
-                callback(members)
-            }
-    }
 
     fun updateUserRole(userId: String, newRole: UserRole, callback: (Boolean) -> Unit) {
         db.collection("users").document(userId)
@@ -427,6 +408,81 @@ object GuardianRepository {
             .addOnFailureListener { e ->
                 Log.e("GuardianRepo", "Error updating display name", e)
                 callback(false)
+            }
+    }
+
+    fun updateUserLocation(userId: String, lat: Double, lng: Double, callback: (Boolean) -> Unit = {}) {
+        db.collection("users").document(userId)
+            .update(
+                mapOf(
+                    "lastLat" to lat,
+                    "lastLng" to lng,
+                    "lastLocationUpdate" to System.currentTimeMillis()
+                )
+            )
+            .addOnSuccessListener { callback(true) }
+            .addOnFailureListener { e ->
+                Log.e("GuardianRepo", "Error updating location", e)
+                callback(false)
+            }
+    }
+
+    fun updateLocationTrackingMode(userId: String, mode: String, callback: (Boolean) -> Unit = {}) {
+        db.collection("users").document(userId)
+            .update("locationTrackingMode", mode)
+            .addOnSuccessListener { callback(true) }
+            .addOnFailureListener { e ->
+                Log.e("GuardianRepo", "Error updating tracking mode", e)
+                callback(false)
+            }
+    }
+
+    fun updateFcmToken(userId: String, token: String) {
+        db.collection("users").document(userId)
+            .update("fcmToken", token)
+            .addOnFailureListener { e ->
+                Log.e("GuardianRepo", "Error updating FCM token", e)
+            }
+    }
+
+    fun resolveAllAlertsForFamily(familyId: String, callback: (Boolean) -> Unit) {
+        db.collection("alerts")
+            .whereEqualTo("familyId", familyId)
+            .whereEqualTo("status", "ACTIVE")
+            .get()
+            .addOnSuccessListener { query ->
+                val batch = db.batch()
+                query.documents.forEach { doc ->
+                    batch.update(doc.reference, "status", "RESOLVED")
+                }
+                batch.commit().addOnSuccessListener { callback(true) }
+            }
+            .addOnFailureListener { callback(false) }
+    }
+
+    fun getFamilyMembers(familyId: String, callback: (List<UserProfile>) -> Unit) {
+        db.collection("users")
+            .whereEqualTo("familyId", familyId)
+            .addSnapshotListener { query, error ->
+                if (error != null) {
+                    Log.e("GuardianRepo", "Error listening for family members", error)
+                    return@addSnapshotListener
+                }
+                val members = query?.documents?.mapNotNull { doc ->
+                    UserProfile(
+                        id = doc.id,
+                        email = doc.getString("email") ?: "",
+                        displayName = doc.getString("displayName") ?: "",
+                        role = UserRole.valueOf(doc.getString("role") ?: UserRole.UNDECIDED.name),
+                        familyId = doc.getString("familyId"),
+                        fcmToken = doc.getString("fcmToken"),
+                        lastLat = doc.getDouble("lastLat"),
+                        lastLng = doc.getDouble("lastLng"),
+                        lastLocationUpdate = doc.getLong("lastLocationUpdate"),
+                        locationTrackingMode = doc.getString("locationTrackingMode") ?: "ALERT_ONLY"
+                    )
+                } ?: emptyList()
+                callback(members)
             }
     }
 }

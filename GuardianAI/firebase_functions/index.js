@@ -7,30 +7,57 @@ exports.onAlertCreated = functions.firestore
     .onCreate(async (snap, context) => {
         const alertData = snap.data();
         const userId = alertData.userId;
-        const type = alertData.type; // "PANIC_BUTTON" or "VOICE_TRIGGER"
+        const familyId = alertData.familyId;
+        const type = alertData.type;
 
-        console.log(`New Alert Detected! Type: ${type}, User: ${userId}`);
+        console.log(`New Alert Detected! Type: ${type}, Family: ${familyId}, User: ${userId}`);
 
-        // 1. Fetch User Contacts
-        // const userDoc = await admin.firestore().collection('users').doc(userId).get();
-        // const contacts = userDoc.data().contacts;
-
-        // 2. Send Notifications (Push / SMS / Email)
-        const contactsSnapshot = await admin.firestore()
-            .collection('users')
-            .doc(userId)
-            .collection('contacts')
-            .get();
-
-        contactsSnapshot.forEach(doc => {
-            const contact = doc.data();
-            console.log(`[SIMULATION ALERT] Sending to ${contact.name} (${contact.phoneNumber}): "EMERGENCY! ${type} detected"`);
-        });
-
-        if (contactsSnapshot.empty) {
-            console.log(`[WARNING] No contacts found for user ${userId}`);
+        if (!familyId) {
+            console.log("No familyId found, skipping notifications");
+            return null;
         }
 
-        // 3. Update Alert Status to "NOTIFIED"
-        return snap.ref.update({ status: 'NOTIFIED' });
+        // 1. Get all family members with valid FCM tokens
+        const membersSnapshot = await admin.firestore()
+            .collection('users')
+            .where('familyId', '==', familyId)
+            .get();
+
+        const tokens = [];
+        membersSnapshot.forEach(doc => {
+            const member = doc.data();
+            // Don't notify the sender, and ensure token exists
+            if (doc.id !== userId && member.fcmToken) {
+                tokens.push(member.fcmToken);
+            }
+        });
+
+        if (tokens.length === 0) {
+            console.log("No recipient tokens found for this family.");
+            return null;
+        }
+
+        // 2. Send Push Notification
+        const message = {
+            notification: {
+                title: `EMERGENCY: ${type}`,
+                body: "A family member needs help! Tap to see their location.",
+            },
+            data: {
+                click_action: "FLUTTER_NOTIFICATION_CLICK", // For older systems if needed
+                alertId: context.params.alertId,
+                type: type,
+                userId: userId
+            },
+            tokens: tokens,
+        };
+
+        try {
+            const response = await admin.messaging().sendEachForMulticast(message);
+            console.log(`Successfully sent ${response.successCount} notifications.`);
+        } catch (error) {
+            console.error("Error sending notifications:", error);
+        }
+
+        return null; // Keep alert status as ACTIVE
     });

@@ -7,6 +7,7 @@ import android.app.PendingIntent
 import android.app.Service
 import android.content.Context
 import android.content.Intent
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
@@ -19,6 +20,7 @@ import app.shouldersofgiants.guardian.MainActivity
 import app.shouldersofgiants.guardian.R
 import app.shouldersofgiants.guardian.data.TriggerPhrase
 import app.shouldersofgiants.guardian.data.TriggerSeverity
+import com.google.android.gms.location.*
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.ListenerRegistration
@@ -33,6 +35,14 @@ class SafetyService : Service(), RecognitionListener {
     private var familyId: String? = null
     private var triggerPhrases = mutableListOf<TriggerPhrase>()
     private var listenerRegistration: ListenerRegistration? = null
+    private var lastLoggedText: String = ""
+    
+    private lateinit var fusedLocationClient: FusedLocationProviderClient
+    private lateinit var locationRequest: LocationRequest
+    private lateinit var locationCallback: LocationCallback
+    private var trackingMode: String = "ALERT_ONLY"
+    private var lastLat: Double? = null
+    private var lastLng: Double? = null
 
     companion object {
         const val CHANNEL_ID = "GuardianServiceChannel"
@@ -43,14 +53,46 @@ class SafetyService : Service(), RecognitionListener {
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
+        fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
+        setupLocationRequest()
     }
+
+    private fun setupLocationRequest() {
+        locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000) // 10s
+            .setMinUpdateIntervalMillis(5000) // 5s
+            .build()
+
+        locationCallback = object : LocationCallback() {
+            override fun onLocationResult(result: LocationResult) {
+                result.lastLocation?.let { location ->
+                    lastLat = location.latitude
+                    lastLng = location.longitude
+                    
+                    if (trackingMode == "ALWAYS") {
+                        val userId = FirebaseAuth.getInstance().currentUser?.uid
+                        userId?.let { uid ->
+                            app.shouldersofgiants.guardian.data.GuardianRepository.updateUserLocation(uid, location.latitude, location.longitude)
+                        }
+                    }
+                    updateNotification("Listening & Tracking: ${location.latitude.format(3)}, ${location.longitude.format(3)}")
+                }
+            }
+        }
+    }
+
+    private fun Double.format(digits: Int) = "%.${digits}f".format(this)
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         when (intent?.action) {
             ACTION_START -> startForegroundService()
             ACTION_STOP -> stopForegroundService()
         }
-        return START_NOT_STICKY
+        return START_STICKY
+    }
+
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        broadcastLog("App UI swiped away - Service continuing in background")
     }
 
     private fun startForegroundService() {
@@ -63,12 +105,19 @@ class SafetyService : Service(), RecognitionListener {
 
         val notification: Notification = NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("Guardian AI Active")
-            .setContentText("Listening for safety triggers...")
+            .setContentText("Listening & Tracking Active")
             .setSmallIcon(R.mipmap.ic_launcher)
             .setContentIntent(pendingIntent)
+            .setOngoing(true)
             .build()
 
-        startForeground(1, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            startForeground(1, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE or ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION)
+        } else {
+            startForeground(1, notification)
+        }
+        
+        startLocationUpdates()
         
         // Load initial triggers from local storage (Offline support)
         val localTriggers = app.shouldersofgiants.guardian.data.GuardianRepository.getLocalTriggerPhrases(this)
@@ -84,6 +133,7 @@ class SafetyService : Service(), RecognitionListener {
             val db = Firebase.firestore
             db.collection("users").document(userId).get().addOnSuccessListener { userDoc ->
                 familyId = userDoc.getString("familyId")
+                trackingMode = userDoc.getString("locationTrackingMode") ?: "ALERT_ONLY"
                 familyId?.let { fid ->
                     listenerRegistration = db.collection("families").document(fid)
                         .addSnapshotListener { snapshot, _ ->
@@ -125,17 +175,37 @@ class SafetyService : Service(), RecognitionListener {
 
     private fun stopForegroundService() {
         isListening = false
+        stopLocationUpdates()
         listenerRegistration?.remove()
-        speechRecognizer?.destroy()
+        speechRecognizer?.let {
+            it.stopListening()
+            it.cancel()
+            it.destroy()
+        }
+        speechRecognizer = null
         stopForeground(STOP_FOREGROUND_REMOVE)
         stopSelf()
         broadcastLog("Service Stopped")
+    }
+
+    private fun startLocationUpdates() {
+        try {
+            fusedLocationClient.requestLocationUpdates(locationRequest, locationCallback, android.os.Looper.getMainLooper())
+        } catch (e: SecurityException) {
+            Log.e("SafetyService", "Location permission missing", e)
+        }
+    }
+
+    private fun stopLocationUpdates() {
+        fusedLocationClient.removeLocationUpdates(locationCallback)
     }
 
     private fun initSpeechRecognizer() {
         if (!SpeechRecognizer.isRecognitionAvailable(this)) return
         
         try {
+            speechRecognizer?.destroy()
+            
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
                 if (SpeechRecognizer.isOnDeviceRecognitionAvailable(this)) {
                     speechRecognizer = SpeechRecognizer.createOnDeviceSpeechRecognizer(this)
@@ -183,7 +253,9 @@ class SafetyService : Service(), RecognitionListener {
     override fun onBeginningOfSpeech() {}
     override fun onRmsChanged(rmsdB: Float) {}
     override fun onBufferReceived(buffer: ByteArray?) {}
-    override fun onEndOfSpeech() { if (isListening) startListening() }
+    override fun onEndOfSpeech() { 
+        // We will restart in onResults or onError to avoid racing with the current session
+    }
 
     override fun onError(error: Int) {
         if (isListening) {
@@ -195,21 +267,30 @@ class SafetyService : Service(), RecognitionListener {
 
     override fun onResults(results: Bundle?) {
         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-        processMatches(matches)
+        processMatches(matches, isPartial = false)
         if (isListening) startListening()
     }
 
     override fun onPartialResults(partialResults: Bundle?) {
         val matches = partialResults?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
-        processMatches(matches)
+        processMatches(matches, isPartial = true)
     }
 
-    private fun processMatches(matches: ArrayList<String>?) {
+    private fun processMatches(matches: ArrayList<String>?, isPartial: Boolean) {
         matches?.let {
             if (it.isNotEmpty()) {
                 val bestMatch = it[0]
-                if (bestMatch.length > 2) {
-                    broadcastLog("Heard: \"$bestMatch\"")
+                
+                // Only log if it's longer than 2 chars AND different from the last logged partial
+                // If it's a final result, we always log it but reset the partial tracker
+                if (bestMatch.length > 2 && bestMatch != lastLoggedText) {
+                    val prefix = if (isPartial) "(Partial) " else ""
+                    broadcastLog("$prefix\"$bestMatch\"")
+                    lastLoggedText = bestMatch
+                }
+                
+                if (!isPartial) {
+                    lastLoggedText = "" // Reset for next sentence
                 }
                 
                 for (match in it) {
@@ -241,13 +322,20 @@ class SafetyService : Service(), RecognitionListener {
             "trigger" to phrase,
             "timestamp" to java.util.Date(),
             "userId" to userId,
-            "familyId" to familyId
+            "familyId" to familyId,
+            "lat" to lastLat,
+            "lng" to lastLng
         )
         Firebase.firestore.collection("alerts").add(notice)
             .addOnSuccessListener { 
                 broadcastLog("Notice sent to family: $phrase")
                 updateNotification("Notice sent: $phrase")
             }
+        
+        // Force location update on alert even if in ALERT_ONLY mode
+        if (lastLat != null && lastLng != null) {
+            app.shouldersofgiants.guardian.data.GuardianRepository.updateUserLocation(userId, lastLat!!, lastLng!!)
+        }
     }
 
     private fun broadcastLog(message: String) {

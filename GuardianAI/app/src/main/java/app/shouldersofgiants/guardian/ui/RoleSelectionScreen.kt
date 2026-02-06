@@ -12,6 +12,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.*
 import app.shouldersofgiants.guardian.data.UserRole
 import app.shouldersofgiants.guardian.viewmodel.GuardianViewModel
 
@@ -30,6 +32,15 @@ fun RoleSelectionScreen(
     )
     val context = androidx.compose.ui.platform.LocalContext.current
     var isLoading by remember { mutableStateOf(false) }
+    val isBatteryOptimized by viewModel.isBatteryOptimized.collectAsState()
+
+    // Auto-check battery optimization on start
+    LaunchedEffect(Unit) {
+        viewModel.checkBatteryOptimization()
+        if (isBatteryOptimized && step == "choices") {
+            step = "battery_optimization"
+        }
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -70,6 +81,12 @@ fun RoleSelectionScreen(
                         RoleChoices(
                             onCreateFamily = { step = "create" },
                             onJoinFamily = { step = "join_code" }
+                        )
+                    }
+                    "battery_optimization" -> {
+                        BatteryOptimizationUI(
+                            onContinue = { step = "choices" },
+                            onOpenSettings = { viewModel.requestIgnoreBatteryOptimization() }
                         )
                     }
                     "create" -> {
@@ -243,6 +260,51 @@ fun JoinFamilyUI(
         
         TextButton(onClick = onBack, modifier = Modifier.align(Alignment.CenterHorizontally)) {
             Text("Back", color = Color.LightGray)
+        }
+    }
+}
+
+@Composable
+fun BatteryOptimizationUI(onContinue: () -> Unit, onOpenSettings: () -> Unit) {
+    Column(
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally
+    ) {
+        Icon(
+            imageVector = Icons.Default.Warning,
+            contentDescription = "Battery Warning",
+            tint = Color(0xFFFFCC00),
+            modifier = Modifier.size(64.dp)
+        )
+        
+        Text(
+            "Reliability Warning",
+            style = MaterialTheme.typography.headlineSmall,
+            color = Color.White,
+            fontWeight = FontWeight.Bold
+        )
+        
+        Text(
+            "To ensure Guardian AI can protect you and track your location in the background, please set the app battery usage to 'Unrestricted'.",
+            color = Color.LightGray,
+            textAlign = TextAlign.Center
+        )
+
+        Spacer(Modifier.height(16.dp))
+
+        Button(
+            onClick = onOpenSettings,
+            modifier = Modifier.fillMaxWidth().height(56.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF4285F4))
+        ) {
+            Text("Open Battery Settings")
+        }
+
+        OutlinedButton(
+            onClick = onContinue,
+            modifier = Modifier.fillMaxWidth().height(56.dp)
+        ) {
+            Text("I've set it to Unrestricted", color = Color.White)
         }
     }
 }

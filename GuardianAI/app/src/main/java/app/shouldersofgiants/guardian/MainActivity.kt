@@ -7,9 +7,9 @@ import androidx.activity.compose.setContent
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -45,11 +45,20 @@ class MainActivity : ComponentActivity() {
                 }
                 
                 // Request Permissions
+                val backgroundLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
+                    androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+                ) {}
+
                 val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
                     androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
-                ) {}
+                ) { results ->
+                    val allGranted = results.values.all { it }
+                    if (allGranted && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        backgroundLauncher.launch(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION)
+                    }
+                }
                 
-                androidx.compose.runtime.LaunchedEffect(Unit) {
+                LaunchedEffect(Unit) {
                     val permissions = mutableListOf(
                         android.Manifest.permission.RECORD_AUDIO,
                         android.Manifest.permission.ACCESS_FINE_LOCATION,
@@ -80,6 +89,7 @@ class MainActivity : ComponentActivity() {
 
                     ModalNavigationDrawer(
                         drawerState = drawerState,
+                        gesturesEnabled = currentScreen != "map",
                         drawerContent = {
                             ModalDrawerSheet(
                                 drawerContainerColor = Color(0xFF1A1A1A),
@@ -170,67 +180,80 @@ class MainActivity : ComponentActivity() {
                             }
                         }
                     ) {
-                        Surface(color = Color.Black) {
-                            when {
-                                userProfile == null -> {
-                                    // Loading profile
-                                    Box(Modifier.fillMaxSize(), Alignment.Center) {
-                                        CircularProgressIndicator()
+                        val activeAlerts by viewModel.activeAlerts.collectAsState()
+                        val snackbarHostState = remember { SnackbarHostState() }
+
+                        LaunchedEffect(activeAlerts) {
+                            if (activeAlerts.isNotEmpty() && currentScreen != "map" && currentScreen != "alert") {
+                                val alert = activeAlerts.first()
+                                if (userProfile?.role != UserRole.PROTECTED && alert.userId != userProfile?.id) {
+                                    val result = snackbarHostState.showSnackbar(
+                                        message = "EMERGENCY: ${alert.type} detected!",
+                                        actionLabel = "VIEW MAP",
+                                        duration = SnackbarDuration.Indefinite
+                                    )
+                                    if (result == SnackbarResult.ActionPerformed) {
+                                        currentScreen = "map"
                                     }
                                 }
-                                userProfile?.role == UserRole.UNDECIDED -> {
-                                    RoleSelectionScreen(viewModel = viewModel)
-                                }
-                                else -> {
-                                    // Role-based navigation
-                                    when (currentScreen) {
-                                        "profile" -> app.shouldersofgiants.guardian.ui.ProfileScreen(
-                                            viewModel = viewModel,
-                                            onBack = { currentScreen = "main" }
-                                        )
-                                        "main" -> {
-                                            when (userProfile?.role) {
-                                                UserRole.MANAGER -> app.shouldersofgiants.guardian.ui.ManagerDashboard(
-                                                    viewModel = viewModel,
-                                                    onNavigateToDebug = { currentScreen = "debug" },
-                                                    onNavigateToMap = { currentScreen = "map" },
-                                                    onOpenDrawer = { scope.launch { drawerState.open() } }
-                                                )
-                                                UserRole.WATCHER -> app.shouldersofgiants.guardian.ui.WatcherDashboard(
-                                                    viewModel = viewModel,
-                                                    onNavigateToDebug = { currentScreen = "debug" },
-                                                    onNavigateToMap = { currentScreen = "map" }
-                                                )
-                                                UserRole.PROTECTED -> MainScreen(
-                                                    onNavigateToContacts = { currentScreen = "contacts" },
-                                                    onPanicTrigger = { currentScreen = "alert" },
-                                                    onNavigateToDebug = { currentScreen = "debug" },
-                                                    onOpenDrawer = { scope.launch { drawerState.open() } },
-                                                    viewModel = viewModel
-                                                )
-                                                else -> MainScreen(
-                                                    onNavigateToContacts = { currentScreen = "contacts" },
-                                                    onPanicTrigger = { currentScreen = "alert" },
-                                                    onNavigateToDebug = { currentScreen = "debug" },
-                                                    onOpenDrawer = { scope.launch { drawerState.open() } },
-                                                    viewModel = viewModel
-                                                )
-                                            }
+                            }
+                        }
+
+                        Scaffold(
+                            snackbarHost = { SnackbarHost(snackbarHostState) },
+                            containerColor = Color.Black
+                        ) { padding ->
+                            Surface(color = Color.Black, modifier = Modifier.padding(padding)) {
+                                when {
+                                    userProfile == null -> {
+                                        Box(Modifier.fillMaxSize(), Alignment.Center) {
+                                            CircularProgressIndicator()
                                         }
-                                        "contacts" -> app.shouldersofgiants.guardian.ui.ContactsScreen(onBack = { currentScreen = "main" })
-                                        "alert" -> app.shouldersofgiants.guardian.ui.AlertScreen(onCancel = { currentScreen = "main" }, onAlertSent = {})
-                                        "debug" -> app.shouldersofgiants.guardian.ui.DebugScreen(onBack = { currentScreen = "main" })
-                                        "map" -> {
-                                            val alerts by viewModel.activeAlerts.collectAsState()
-                                            app.shouldersofgiants.guardian.ui.MapScreen(
-                                                activeAlerts = alerts,
+                                    }
+                                    userProfile?.role == UserRole.UNDECIDED -> {
+                                        RoleSelectionScreen(viewModel = viewModel)
+                                    }
+                                    else -> {
+                                        when (currentScreen) {
+                                            "profile" -> app.shouldersofgiants.guardian.ui.ProfileScreen(
+                                                viewModel = viewModel,
+                                                onBack = { currentScreen = "main" }
+                                            )
+                                            "main" -> {
+                                                when (userProfile?.role) {
+                                                    UserRole.MANAGER -> app.shouldersofgiants.guardian.ui.ManagerDashboard(
+                                                        viewModel = viewModel,
+                                                        onNavigateToDebug = { currentScreen = "debug" },
+                                                        onNavigateToMap = { currentScreen = "map" },
+                                                        onOpenDrawer = { scope.launch { drawerState.open() } }
+                                                    )
+                                                    UserRole.WATCHER -> app.shouldersofgiants.guardian.ui.WatcherDashboard(
+                                                        viewModel = viewModel,
+                                                        onNavigateToDebug = { currentScreen = "debug" },
+                                                        onNavigateToMap = { currentScreen = "map" },
+                                                        onOpenDrawer = { scope.launch { drawerState.open() } }
+                                                    )
+                                                    else -> MainScreen(
+                                                        onNavigateToContacts = { currentScreen = "contacts" },
+                                                        onPanicTrigger = { currentScreen = "alert" },
+                                                        onNavigateToDebug = { currentScreen = "debug" },
+                                                        onOpenDrawer = { scope.launch { drawerState.open() } },
+                                                        viewModel = viewModel
+                                                    )
+                                                }
+                                            }
+                                            "contacts" -> app.shouldersofgiants.guardian.ui.ContactsScreen(onBack = { currentScreen = "main" })
+                                            "alert" -> app.shouldersofgiants.guardian.ui.AlertScreen(onCancel = { currentScreen = "main" }, onAlertSent = {})
+                                            "debug" -> app.shouldersofgiants.guardian.ui.DebugScreen(onBack = { currentScreen = "main" })
+                                            "map" -> app.shouldersofgiants.guardian.ui.MapScreen(
+                                                viewModel = viewModel,
+                                                onBack = { currentScreen = "main" }
+                                            )
+                                            "family_management" -> app.shouldersofgiants.guardian.ui.FamilyManagementScreen(
+                                                viewModel = viewModel,
                                                 onBack = { currentScreen = "main" }
                                             )
                                         }
-                                        "family_management" -> app.shouldersofgiants.guardian.ui.FamilyManagementScreen(
-                                            viewModel = viewModel,
-                                            onBack = { currentScreen = "main" }
-                                        )
                                     }
                                 }
                             }

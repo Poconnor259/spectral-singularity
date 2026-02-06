@@ -29,11 +29,30 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
     private val _userProfile = MutableStateFlow<app.shouldersofgiants.guardian.data.UserProfile?>(null)
     val userProfile: StateFlow<app.shouldersofgiants.guardian.data.UserProfile?> = _userProfile.asStateFlow()
 
+    private val _familyMembers = MutableStateFlow<List<app.shouldersofgiants.guardian.data.UserProfile>>(emptyList())
+    val familyMembers: StateFlow<List<app.shouldersofgiants.guardian.data.UserProfile>> = _familyMembers.asStateFlow()
+
     private val _family = MutableStateFlow<app.shouldersofgiants.guardian.data.Family?>(null)
     val family: StateFlow<app.shouldersofgiants.guardian.data.Family?> = _family.asStateFlow()
 
+    private val _isBatteryOptimized = MutableStateFlow(false)
+    val isBatteryOptimized: StateFlow<Boolean> = _isBatteryOptimized.asStateFlow()
+
     init {
         fetchUserProfile()
+        checkBatteryOptimization()
+    }
+
+    fun checkBatteryOptimization() {
+        val pm = getApplication<Application>().getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+        _isBatteryOptimized.value = !pm.isIgnoringBatteryOptimizations(getApplication<Application>().packageName)
+    }
+
+    fun requestIgnoreBatteryOptimization() {
+        val context = getApplication<Application>()
+        val intent = Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        context.startActivity(intent)
     }
 
     fun fetchUserProfile() {
@@ -51,15 +70,30 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
                     loadFamily(fid)
                     loadContacts()
                 }
+                registerFcmToken()
+            }
+        }
+    }
+
+    private fun registerFcmToken() {
+        com.google.firebase.messaging.FirebaseMessaging.getInstance().token.addOnSuccessListener { token ->
+            _userProfile.value?.id?.let { uid ->
+                app.shouldersofgiants.guardian.data.GuardianRepository.updateFcmToken(uid, token)
+            }
+        }
+    }
+
+    fun resolveAlerts() {
+        val familyId = _family.value?.id ?: return
+        app.shouldersofgiants.guardian.data.GuardianRepository.resolveAllAlertsForFamily(familyId) { success ->
+            if (success) {
+                // alerts list will auto-update via listener
             }
         }
     }
 
     private val _activeAlerts = MutableStateFlow<List<app.shouldersofgiants.guardian.data.Alert>>(emptyList())
     val activeAlerts: StateFlow<List<app.shouldersofgiants.guardian.data.Alert>> = _activeAlerts.asStateFlow()
-
-    private val _familyMembers = MutableStateFlow<List<app.shouldersofgiants.guardian.data.UserProfile>>(emptyList())
-    val familyMembers: StateFlow<List<app.shouldersofgiants.guardian.data.UserProfile>> = _familyMembers.asStateFlow()
 
     private fun loadFamily(familyId: String) {
         app.shouldersofgiants.guardian.data.GuardianRepository.getFamily(familyId) { family ->
@@ -177,6 +211,19 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
 
     fun signUpWithEmail(email: String, out_password: String, onResult: (Boolean, String?) -> Unit) {
         app.shouldersofgiants.guardian.data.GuardianRepository.signUpWithEmail(email, out_password, onResult)
+    }
+
+    fun fetchFamilyMembers(familyId: String) {
+        app.shouldersofgiants.guardian.data.GuardianRepository.getFamilyMembers(familyId) { members ->
+            _familyMembers.value = members
+        }
+    }
+
+    fun updateLocationTrackingMode(mode: String) {
+        val userId = _userProfile.value?.id ?: return
+        app.shouldersofgiants.guardian.data.GuardianRepository.updateLocationTrackingMode(userId, mode) { success ->
+            if (success) fetchUserProfile()
+        }
     }
 
     fun sendPasswordResetEmail(email: String, onResult: (Boolean, String?) -> Unit) {
