@@ -58,6 +58,9 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
     private val _activeAlerts = MutableStateFlow<List<app.shouldersofgiants.guardian.data.Alert>>(emptyList())
     val activeAlerts: StateFlow<List<app.shouldersofgiants.guardian.data.Alert>> = _activeAlerts.asStateFlow()
 
+    private val _familyMembers = MutableStateFlow<List<app.shouldersofgiants.guardian.data.UserProfile>>(emptyList())
+    val familyMembers: StateFlow<List<app.shouldersofgiants.guardian.data.UserProfile>> = _familyMembers.asStateFlow()
+
     private fun loadFamily(familyId: String) {
         app.shouldersofgiants.guardian.data.GuardianRepository.getFamily(familyId) { family ->
             _family.value = family
@@ -65,6 +68,20 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
             app.shouldersofgiants.guardian.data.GuardianRepository.getActiveAlertsForFamily(familyId) { alerts ->
                 _activeAlerts.value = alerts
             }
+            // Load members
+            loadFamilyMembers(familyId)
+        }
+    }
+
+    private fun loadFamilyMembers(familyId: String) {
+        app.shouldersofgiants.guardian.data.GuardianRepository.getFamilyMembers(familyId) { members ->
+            _familyMembers.value = members
+        }
+    }
+
+    fun updateUserRole(userId: String, newRole: app.shouldersofgiants.guardian.data.UserRole, onResult: (Boolean) -> Unit = {}) {
+        app.shouldersofgiants.guardian.data.GuardianRepository.updateUserRole(userId, newRole) { success ->
+            onResult(success)
         }
     }
 

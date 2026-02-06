@@ -368,4 +368,38 @@ object GuardianRepository {
             emptyList()
         }
     }
+
+    fun getFamilyMembers(familyId: String, callback: (List<UserProfile>) -> Unit) {
+        db.collection("users")
+            .whereEqualTo("familyId", familyId)
+            .addSnapshotListener { snapshot, error ->
+                if (error != null) {
+                    Log.e("GuardianRepo", "Error fetching family members", error)
+                    callback(emptyList())
+                    return@addSnapshotListener
+                }
+                
+                val members = snapshot?.documents?.map { doc ->
+                    UserProfile(
+                        id = doc.id,
+                        email = doc.getString("email") ?: "",
+                        displayName = doc.getString("displayName") ?: "",
+                        role = UserRole.valueOf(doc.getString("role") ?: UserRole.UNDECIDED.name),
+                        familyId = doc.getString("familyId"),
+                        fcmToken = doc.getString("fcmToken")
+                    )
+                } ?: emptyList()
+                callback(members)
+            }
+    }
+
+    fun updateUserRole(userId: String, newRole: UserRole, callback: (Boolean) -> Unit) {
+        db.collection("users").document(userId)
+            .update("role", newRole.name)
+            .addOnSuccessListener { callback(true) }
+            .addOnFailureListener { e ->
+                Log.e("GuardianRepo", "Error updating user role", e)
+                callback(false)
+            }
+    }
 }

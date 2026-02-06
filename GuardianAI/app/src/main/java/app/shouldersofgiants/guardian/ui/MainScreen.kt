@@ -35,6 +35,7 @@ fun MainScreen(
     onNavigateToContacts: () -> Unit,
     onPanicTrigger: () -> Unit,
     onNavigateToDebug: () -> Unit,
+    onOpenDrawer: () -> Unit,
     viewModel: GuardianViewModel = viewModel()
 ) {
     val isListening by viewModel.isListening.collectAsState()
@@ -89,6 +90,15 @@ fun MainScreen(
                             "Your Safety Companion",
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                },
+                navigationIcon = {
+                    IconButton(onClick = onOpenDrawer) {
+                        Icon(
+                            imageVector = Icons.Default.Menu,
+                            contentDescription = "Menu",
+                            tint = MaterialTheme.colorScheme.onSurface
                         )
                     }
                 },
