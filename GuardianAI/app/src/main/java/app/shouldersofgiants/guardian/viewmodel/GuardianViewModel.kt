@@ -183,6 +183,14 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
         app.shouldersofgiants.guardian.data.GuardianRepository.sendPasswordResetEmail(email, onResult)
     }
 
+    fun updateUserProfile(name: String, onResult: (Boolean) -> Unit = {}) {
+        val userId = _userProfile.value?.id ?: return
+        app.shouldersofgiants.guardian.data.GuardianRepository.updateDisplayName(userId, name) { success ->
+            if (success) fetchUserProfile()
+            onResult(success)
+        }
+    }
+
     fun addContact(name: String, phoneNumber: String, email: String) {
         val contact = app.shouldersofgiants.guardian.data.Contact(name = name, phoneNumber = phoneNumber, email = email)
         app.shouldersofgiants.guardian.data.GuardianRepository.saveContact(contact) { success ->

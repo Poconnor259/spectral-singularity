@@ -22,6 +22,7 @@ fun RoleSelectionScreen(
     var step by remember { mutableStateOf("choices") }
     var familyName by remember { mutableStateOf("") }
     var inviteCode by remember { mutableStateOf("") }
+    var userName by remember { mutableStateOf("") }
     val userProfile by viewModel.userProfile.collectAsState()
     
     val brush = Brush.verticalGradient(
@@ -75,12 +76,16 @@ fun RoleSelectionScreen(
                         CreateFamilyUI(
                             name = familyName,
                             onNameChange = { familyName = it },
+                            userName = userName,
+                            onUserNameChange = { userName = it },
                             onConfirm = { 
                                 isLoading = true
-                                viewModel.createFamily(familyName, onError = { msg ->
-                                    isLoading = false
-                                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-                                }) 
+                                viewModel.updateUserProfile(userName) { _ ->
+                                    viewModel.createFamily(familyName, onError = { msg ->
+                                        isLoading = false
+                                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                    })
+                                }
                             },
                             onBack = { step = "choices" }
                         )
@@ -89,12 +94,16 @@ fun RoleSelectionScreen(
                         JoinFamilyUI(
                             code = inviteCode,
                             onCodeChange = { inviteCode = it },
+                            userName = userName,
+                            onUserNameChange = { userName = it },
                             onJoin = { role -> 
                                 isLoading = true
-                                viewModel.joinFamily(inviteCode, role, onError = { msg ->
-                                    isLoading = false
-                                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-                                })
+                                viewModel.updateUserProfile(userName) { _ ->
+                                    viewModel.joinFamily(inviteCode, role, onError = { msg ->
+                                        isLoading = false
+                                        android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                    })
+                                }
                             },
                             onBack = { step = "choices" }
                         )
@@ -136,10 +145,22 @@ fun RoleChoices(onCreateFamily: () -> Unit, onJoinFamily: () -> Unit) {
 fun CreateFamilyUI(
     name: String,
     onNameChange: (String) -> Unit,
+    userName: String,
+    onUserNameChange: (String) -> Unit,
     onConfirm: () -> Unit,
     onBack: () -> Unit
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        OutlinedTextField(
+            value = userName,
+            onValueChange = onUserNameChange,
+            label = { Text("Your Name (e.g. John Doe)") },
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            )
+        )
         OutlinedTextField(
             value = name,
             onValueChange = onNameChange,
@@ -168,12 +189,24 @@ fun CreateFamilyUI(
 fun JoinFamilyUI(
     code: String,
     onCodeChange: (String) -> Unit,
+    userName: String,
+    onUserNameChange: (String) -> Unit,
     onJoin: (UserRole) -> Unit,
     onBack: () -> Unit
 ) {
     var selectedRole by remember { mutableStateOf<UserRole?>(null) }
 
     Column(verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        OutlinedTextField(
+            value = userName,
+            onValueChange = onUserNameChange,
+            label = { Text("Your Name (e.g. Jane Doe)") },
+            modifier = Modifier.fillMaxWidth(),
+            colors = OutlinedTextFieldDefaults.colors(
+                focusedTextColor = Color.White,
+                unfocusedTextColor = Color.White
+            )
+        )
         OutlinedTextField(
             value = code,
             onValueChange = onCodeChange,

@@ -10,6 +10,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.shouldersofgiants.guardian.ui.MainScreen
 import app.shouldersofgiants.guardian.ui.RoleSelectionScreen
@@ -79,8 +82,8 @@ class MainActivity : ComponentActivity() {
                         drawerState = drawerState,
                         drawerContent = {
                             ModalDrawerSheet(
-                                containerColor = Color(0xFF1A1A1A),
-                                contentColor = Color.White
+                                drawerContainerColor = Color(0xFF1A1A1A),
+                                drawerContentColor = Color.White
                             ) {
                                 Spacer(Modifier.height(12.dp))
                                 Text(
@@ -92,7 +95,7 @@ class MainActivity : ComponentActivity() {
                                 HorizontalDivider(color = Color.DarkGray)
                                 NavigationDrawerItem(
                                     label = { Text("Dashboard") },
-                                    icon = { Icon(Icons.Default.Dashboard, contentDescription = null) },
+                                    icon = { Icon(Icons.Filled.Dashboard, contentDescription = null) },
                                     selected = currentScreen == "main",
                                     onClick = {
                                         currentScreen = "main"
@@ -101,8 +104,18 @@ class MainActivity : ComponentActivity() {
                                     colors = NavigationDrawerItemDefaults.colors(unselectedTextColor = Color.LightGray, unselectedIconColor = Color.LightGray)
                                 )
                                 NavigationDrawerItem(
+                                    label = { Text("Profile") },
+                                    icon = { Icon(Icons.Filled.Person, contentDescription = null) },
+                                    selected = currentScreen == "profile",
+                                    onClick = {
+                                        currentScreen = "profile"
+                                        scope.launch { drawerState.close() }
+                                    },
+                                    colors = NavigationDrawerItemDefaults.colors(unselectedTextColor = Color.LightGray, unselectedIconColor = Color.LightGray)
+                                )
+                                NavigationDrawerItem(
                                     label = { Text("Map") },
-                                    icon = { Icon(Icons.Default.Map, contentDescription = null) },
+                                    icon = { Icon(Icons.Filled.Map, contentDescription = null) },
                                     selected = currentScreen == "map",
                                     onClick = {
                                         currentScreen = "map"
@@ -113,7 +126,7 @@ class MainActivity : ComponentActivity() {
                                 if (userProfile?.role == UserRole.MANAGER) {
                                     NavigationDrawerItem(
                                         label = { Text("Manage Family") },
-                                        icon = { Icon(Icons.Default.Group, contentDescription = null) },
+                                        icon = { Icon(Icons.Filled.Group, contentDescription = null) },
                                         selected = currentScreen == "family_management",
                                         onClick = {
                                             currentScreen = "family_management"
@@ -124,7 +137,7 @@ class MainActivity : ComponentActivity() {
                                 }
                                 NavigationDrawerItem(
                                     label = { Text("Contacts") },
-                                    icon = { Icon(Icons.Default.Contacts, contentDescription = null) },
+                                    icon = { Icon(Icons.Filled.Contacts, contentDescription = null) },
                                     selected = currentScreen == "contacts",
                                     onClick = {
                                         currentScreen = "contacts"
@@ -134,7 +147,7 @@ class MainActivity : ComponentActivity() {
                                 )
                                 NavigationDrawerItem(
                                     label = { Text("Debug") },
-                                    icon = { Icon(Icons.Default.Build, contentDescription = null) },
+                                    icon = { Icon(Icons.Filled.Build, contentDescription = null) },
                                     selected = currentScreen == "debug",
                                     onClick = {
                                         currentScreen = "debug"
@@ -145,7 +158,7 @@ class MainActivity : ComponentActivity() {
                                 Spacer(Modifier.weight(1f))
                                 NavigationDrawerItem(
                                     label = { Text("Logout") },
-                                    icon = { Icon(Icons.Default.Logout, contentDescription = null) },
+                                    icon = { Icon(Icons.Filled.Logout, contentDescription = null) },
                                     selected = false,
                                     onClick = {
                                         auth.signOut()
@@ -171,6 +184,10 @@ class MainActivity : ComponentActivity() {
                                 else -> {
                                     // Role-based navigation
                                     when (currentScreen) {
+                                        "profile" -> app.shouldersofgiants.guardian.ui.ProfileScreen(
+                                            viewModel = viewModel,
+                                            onBack = { currentScreen = "main" }
+                                        )
                                         "main" -> {
                                             when (userProfile?.role) {
                                                 UserRole.MANAGER -> app.shouldersofgiants.guardian.ui.ManagerDashboard(

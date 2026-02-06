@@ -170,9 +170,20 @@ object GuardianRepository {
         db.collection("users").document(userId).get()
             .addOnSuccessListener { doc ->
                 if (doc.exists()) {
+                    var email = doc.getString("email") ?: ""
+                    val firebaseUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
+                    
+                    // Auto-sync email from Auth if empty in Firestore
+                    if (email.isBlank() && firebaseUser?.uid == userId) {
+                        email = firebaseUser.email ?: ""
+                        if (email.isNotBlank()) {
+                            db.collection("users").document(userId).update("email", email)
+                        }
+                    }
+
                     val profile = UserProfile(
                         id = doc.id,
-                        email = doc.getString("email") ?: "",
+                        email = email,
                         displayName = doc.getString("displayName") ?: "",
                         role = UserRole.valueOf(doc.getString("role") ?: UserRole.UNDECIDED.name),
                         familyId = doc.getString("familyId"),
@@ -212,9 +223,12 @@ object GuardianRepository {
         db.collection("families").document(familyId).set(family)
             .addOnSuccessListener {
                 // Update manager's profile - using SET with merge because document might not exist yet
+                val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
                 val updates = hashMapOf(
                     "familyId" to familyId,
-                    "role" to UserRole.MANAGER.name
+                    "role" to UserRole.MANAGER.name,
+                    "email" to (user?.email ?: ""),
+                    "displayName" to (user?.displayName ?: "")
                 )
                 db.collection("users").document(managerId)
                     .set(updates, SetOptions.merge())
@@ -233,9 +247,12 @@ object GuardianRepository {
                 val familyDoc = snapshot.documents.firstOrNull()
                 if (familyDoc != null) {
                     val familyId = familyDoc.id
+                    val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
                     val updates = hashMapOf(
                         "familyId" to familyId,
-                        "role" to role.name
+                        "role" to role.name,
+                        "email" to (user?.email ?: ""),
+                        "displayName" to (user?.displayName ?: "")
                     )
                     db.collection("users").document(userId)
                         .set(updates, SetOptions.merge())
@@ -399,6 +416,16 @@ object GuardianRepository {
             .addOnSuccessListener { callback(true) }
             .addOnFailureListener { e ->
                 Log.e("GuardianRepo", "Error updating user role", e)
+                callback(false)
+            }
+    }
+
+    fun updateDisplayName(userId: String, name: String, callback: (Boolean) -> Unit) {
+        db.collection("users").document(userId)
+            .update("displayName", name)
+            .addOnSuccessListener { callback(true) }
+            .addOnFailureListener { e ->
+                Log.e("GuardianRepo", "Error updating display name", e)
                 callback(false)
             }
     }

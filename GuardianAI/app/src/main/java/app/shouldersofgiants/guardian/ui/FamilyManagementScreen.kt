@@ -8,6 +8,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.Person
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -80,7 +83,7 @@ fun FamilyManagementScreen(
                                 }
                             }
                         )
-                        Divider(color = Color.DarkGray, thickness = 0.5.dp)
+                        HorizontalDivider(color = Color.DarkGray, thickness = 0.5.dp)
                     }
                 }
             }
@@ -95,13 +98,37 @@ fun MemberItem(
 ) {
     var showRoleMenu by remember { mutableStateOf(false) }
 
+    val displayName = if (member.displayName.isNotBlank()) member.displayName else member.email
+    val initials = if (member.displayName.isNotBlank()) {
+        member.displayName.take(1).uppercase()
+    } else if (member.email.isNotBlank()) {
+        member.email.take(1).uppercase()
+    } else "?"
+
     ListItem(
-        headlineContent = { Text(member.displayName, color = Color.White, fontWeight = FontWeight.Bold) },
+        leadingContent = {
+            Box(
+                modifier = Modifier
+                    .size(40.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF4285F4)),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(initials, color = Color.White, fontWeight = FontWeight.Bold)
+            }
+        },
+        headlineContent = { Text(displayName, color = Color.White, fontWeight = FontWeight.Bold) },
         supportingContent = { 
-            Text(
-                text = "${member.email}\nRole: ${member.role.name}", 
-                color = Color.Gray 
-            ) 
+            Column {
+                if (member.displayName.isNotBlank() && member.email.isNotBlank()) {
+                    Text(member.email, color = Color.Gray, style = MaterialTheme.typography.bodySmall)
+                }
+                Text(
+                    text = "Role: ${member.role.name}", 
+                    color = Color.LightGray,
+                    style = MaterialTheme.typography.bodySmall
+                )
+            }
         },
         trailingContent = {
             Box {
