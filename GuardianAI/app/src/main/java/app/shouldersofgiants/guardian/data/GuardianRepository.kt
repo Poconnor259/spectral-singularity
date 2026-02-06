@@ -71,7 +71,7 @@ object GuardianRepository {
         activity: android.app.Activity,
         phoneNumber: String,
         onCodeSent: (String) -> Unit,
-        onVerificationFailed: (Exception) -> Unit
+        onFailure: (String) -> Unit
     ) {
         val options = com.google.firebase.auth.PhoneAuthOptions.newBuilder(com.google.firebase.auth.FirebaseAuth.getInstance())
             .setPhoneNumber(phoneNumber)
@@ -85,8 +85,8 @@ object GuardianRepository {
                 }
 
                 override fun onVerificationFailed(e: com.google.firebase.FirebaseException) {
-                     Log.w("GuardianRepo", "onVerificationFailed", e)
-                     onVerificationFailed(e)
+                     Log.w("GuardianRepo", "onVerificationFailed: ${e.message}", e)
+                     onFailure(e.message ?: "Verification failed")
                 }
 
                 override fun onCodeSent(
@@ -146,6 +146,18 @@ object GuardianRepository {
                 } else {
                     Log.w("GuardianRepo", "signUpWithEmail:failure", task.exception)
                     onResult(false, task.exception?.message ?: "Unknown error")
+                }
+            }
+    }
+
+    fun sendPasswordResetEmail(email: String, onResult: (Boolean, String?) -> Unit) {
+        com.google.firebase.auth.FirebaseAuth.getInstance().sendPasswordResetEmail(email)
+            .addOnCompleteListener { task ->
+                if (task.isSuccessful) {
+                    onResult(true, null)
+                } else {
+                    Log.w("GuardianRepo", "sendPasswordResetEmail:failure", task.exception)
+                    onResult(false, task.exception?.message ?: "Failed to send reset email")
                 }
             }
     }

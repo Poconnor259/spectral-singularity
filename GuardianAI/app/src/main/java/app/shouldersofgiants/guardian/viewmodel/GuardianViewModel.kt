@@ -136,12 +136,12 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
         app.shouldersofgiants.guardian.data.LogRepository.addLog(msg)
     }
 
-    fun sendVerificationCode(activity: android.app.Activity, phoneNumber: String, onCodeSent: (String?) -> Unit) {
+    fun sendVerificationCode(activity: android.app.Activity, phoneNumber: String, onResult: (String?, String?) -> Unit) {
         app.shouldersofgiants.guardian.data.GuardianRepository.sendVerificationCode(
             activity, 
             phoneNumber,
-            onCodeSent = { vid -> onCodeSent(vid) },
-            onVerificationFailed = { onCodeSent(null) }
+            onCodeSent = { vid -> onResult(vid, null) },
+            onFailure = { error -> onResult(null, error) }
         )
     }
 
@@ -160,6 +160,10 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
 
     fun signUpWithEmail(email: String, out_password: String, onResult: (Boolean, String?) -> Unit) {
         app.shouldersofgiants.guardian.data.GuardianRepository.signUpWithEmail(email, out_password, onResult)
+    }
+
+    fun sendPasswordResetEmail(email: String, onResult: (Boolean, String?) -> Unit) {
+        app.shouldersofgiants.guardian.data.GuardianRepository.sendPasswordResetEmail(email, onResult)
     }
 
     fun addContact(name: String, phoneNumber: String, email: String) {
@@ -211,5 +215,12 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
                 loadFamily(familyId)
             }
         }
+    }
+
+    fun clearState() {
+        _userProfile.value = null
+        _family.value = null
+        _activeAlerts.value = emptyList()
+        _contacts.value = emptyList()
     }
 }

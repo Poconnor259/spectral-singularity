@@ -24,10 +24,21 @@ class MainActivity : ComponentActivity() {
             GuardianAITheme {
                 val viewModel: GuardianViewModel = viewModel()
                 val userProfile by viewModel.userProfile.collectAsState()
-                val currentUser = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
-                var isLoggedIn by remember { mutableStateOf(currentUser != null) }
+                val auth = com.google.firebase.auth.FirebaseAuth.getInstance()
+                var isLoggedIn by remember { mutableStateOf(auth.currentUser != null) }
                 
-                // Request Permissions (Location added for Map feature)
+                DisposableEffect(auth) {
+                    val listener = com.google.firebase.auth.FirebaseAuth.AuthStateListener { firebaseAuth ->
+                        isLoggedIn = firebaseAuth.currentUser != null
+                        if (!isLoggedIn) {
+                            viewModel.clearState()
+                        }
+                    }
+                    auth.addAuthStateListener(listener)
+                    onDispose { auth.removeAuthStateListener(listener) }
+                }
+                
+                // Request Permissions
                 val permissionLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
                     androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
                 ) {}

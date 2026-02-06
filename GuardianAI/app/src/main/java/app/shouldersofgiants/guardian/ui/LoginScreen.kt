@@ -123,10 +123,13 @@ fun LoginScreen(
                         isLoading = isLoading,
                         onSendCode = {
                             isLoading = true
-                            viewModel.sendVerificationCode(context as Activity, phoneNumber) { vid ->
+                            viewModel.sendVerificationCode(context as Activity, phoneNumber) { vid, error ->
                                 isLoading = false
-                                if (vid != null) verificationId = vid
-                                else Toast.makeText(context, "Failed to send code", Toast.LENGTH_SHORT).show()
+                                if (vid != null) {
+                                    verificationId = vid
+                                } else {
+                                    Toast.makeText(context, "Error: ${error ?: "Failed to send code"}", Toast.LENGTH_LONG).show()
+                                }
                             }
                         },
                         onVerifyCode = {
@@ -334,6 +337,30 @@ fun EmailAuthUI(
         ) {
             if (isLoading) CircularProgressIndicator(color = Color.White) else Text(if (isSignUp) "Sign Up" else "Login")
         }
+
+        if (!isSignUp) {
+            val context = LocalContext.current
+            val viewModel: app.shouldersofgiants.guardian.viewmodel.GuardianViewModel = viewModel()
+            TextButton(
+                onClick = {
+                    if (email.isNotEmpty()) {
+                        viewModel.sendPasswordResetEmail(email) { success, error ->
+                            if (success) {
+                                Toast.makeText(context, "Reset email sent to $email", Toast.LENGTH_LONG).show()
+                            } else {
+                                Toast.makeText(context, error ?: "Failed to send reset email", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    } else {
+                        Toast.makeText(context, "Please enter your email first", Toast.LENGTH_SHORT).show()
+                    }
+                },
+                modifier = Modifier.align(Alignment.CenterHorizontally)
+            ) {
+                Text("Forgot Password?", color = Color.White)
+            }
+        }
+
         TextButton(onClick = onSwitchMode, modifier = Modifier.align(Alignment.CenterHorizontally)) {
             Text(
                 if (isSignUp) "Already have an account? Login" else "Don't have an account? Sign Up",
