@@ -92,14 +92,13 @@ fun MapScreen(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
             uiSettings = MapUiSettings(myLocationButtonEnabled = false),
-            properties = MapProperties(isMyLocationEnabled = true)
+            properties = MapProperties(isMyLocationEnabled = false)
         ) {
             // Alerts markers
             activeAlerts.forEach { alert ->
                 if (alert.lat != null && alert.lng != null) {
                     MarkerComposable(
                         state = MarkerState(position = LatLng(alert.lat, alert.lng)),
-                        title = "ALERT: ${alert.type}",
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             // Alert Label
@@ -139,7 +138,6 @@ fun MapScreen(
                     
                     MarkerComposable(
                         state = MarkerState(position = LatLng(member.lastLat, member.lastLng)),
-                        title = member.displayName.ifBlank { member.email },
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             // Name Bubble
