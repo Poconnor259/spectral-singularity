@@ -87,6 +87,8 @@ fun MapScreen(
         }
     }
 
+    val markerStates = remember { mutableStateMapOf<String, MarkerState>() }
+
     Box(modifier = Modifier.fillMaxSize()) {
         GoogleMap(
             modifier = Modifier.fillMaxSize(),
@@ -132,12 +134,12 @@ fun MapScreen(
             // Family members markers
             familyMembers.forEach { member ->
                 if (member.lastLat != null && member.lastLng != null) {
-                    val timeStr = if (member.lastLocationUpdate != null) {
-                        java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault()).format(java.util.Date(member.lastLocationUpdate))
-                    } else "Unknown"
-                    
+                    val pos = LatLng(member.lastLat, member.lastLng)
+                    val markerState = markerStates.getOrPut(member.id) { MarkerState(position = pos) }
+                    markerState.position = pos
+
                     MarkerComposable(
-                        state = MarkerState(position = LatLng(member.lastLat, member.lastLng)),
+                        state = markerState,
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally) {
                             // Name Bubble
