@@ -72,10 +72,14 @@ class MainActivity : ComponentActivity() {
                 
                 val initialScreen = if (intent?.action == "ACTION_TRIGGER_PANIC") "alert" else "main"
                 var currentScreen by remember { mutableStateOf(initialScreen) }
+                var triggerType by remember { mutableStateOf(intent?.getStringExtra("EXTRA_TRIGGER_TYPE") ?: "PANIC_BUTTON") }
+                var triggerPhrase by remember { mutableStateOf(intent?.getStringExtra("EXTRA_TRIGGER_PHRASE")) }
 
                 DisposableEffect(Unit) {
                     val listener = androidx.core.util.Consumer<Intent> { newIntent ->
                         if (newIntent.action == "ACTION_TRIGGER_PANIC") {
+                            triggerType = newIntent.getStringExtra("EXTRA_TRIGGER_TYPE") ?: "PANIC_BUTTON"
+                            triggerPhrase = newIntent.getStringExtra("EXTRA_TRIGGER_PHRASE")
                             currentScreen = "alert"
                         }
                     }
@@ -181,22 +185,13 @@ class MainActivity : ComponentActivity() {
                         }
                     ) {
                         val activeAlerts by viewModel.activeAlerts.collectAsState()
+                        var dismissedAlerts by remember { mutableStateOf(setOf<String>()) }
                         val snackbarHostState = remember { SnackbarHostState() }
 
-                        LaunchedEffect(activeAlerts) {
-                            if (activeAlerts.isNotEmpty() && currentScreen != "map" && currentScreen != "alert") {
-                                val alert = activeAlerts.first()
-                                if (userProfile?.role != UserRole.PROTECTED && alert.userId != userProfile?.id) {
-                                    val result = snackbarHostState.showSnackbar(
-                                        message = "EMERGENCY: ${alert.type} detected!",
-                                        actionLabel = "VIEW MAP",
-                                        duration = SnackbarDuration.Indefinite
-                                    )
-                                    if (result == SnackbarResult.ActionPerformed) {
-                                        currentScreen = "map"
-                                    }
-                                }
-                            }
+                        val currentAlert = activeAlerts.firstOrNull { 
+                            it.id !in dismissedAlerts && 
+                            it.userId != userProfile?.id && 
+                            userProfile?.role != UserRole.PROTECTED 
                         }
 
                         Scaffold(
@@ -243,7 +238,12 @@ class MainActivity : ComponentActivity() {
                                                 }
                                             }
                                             "contacts" -> app.shouldersofgiants.guardian.ui.ContactsScreen(onBack = { currentScreen = "main" })
-                                            "alert" -> app.shouldersofgiants.guardian.ui.AlertScreen(onCancel = { currentScreen = "main" }, onAlertSent = {})
+                                            "alert" -> app.shouldersofgiants.guardian.ui.AlertScreen(
+                                                onCancel = { currentScreen = "main" },
+                                                onAlertSent = {},
+                                                triggerType = triggerType,
+                                                triggerPhrase = triggerPhrase
+                                            )
                                             "debug" -> app.shouldersofgiants.guardian.ui.DebugScreen(onBack = { currentScreen = "main" })
                                             "map" -> app.shouldersofgiants.guardian.ui.MapScreen(
                                                 viewModel = viewModel,
@@ -256,6 +256,21 @@ class MainActivity : ComponentActivity() {
                                         }
                                     }
                                 }
+                            }
+                        }
+
+                        // Emergency Overlay
+                        currentAlert?.let { alert ->
+                            if (currentScreen != "map") {
+                                app.shouldersofgiants.guardian.ui.EmergencyOverlay(
+                                    alert = alert,
+                                    onViewMap = {
+                                        currentScreen = "map"
+                                    },
+                                    onDismiss = {
+                                        dismissedAlerts = dismissedAlerts + alert.id
+                                    }
+                                )
                             }
                         }
                     }

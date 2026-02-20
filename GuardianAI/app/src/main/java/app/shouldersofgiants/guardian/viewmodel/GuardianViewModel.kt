@@ -38,6 +38,8 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
     private val _isBatteryOptimized = MutableStateFlow(false)
     val isBatteryOptimized: StateFlow<Boolean> = _isBatteryOptimized.asStateFlow()
 
+    private var profileListener: com.google.firebase.firestore.ListenerRegistration? = null
+
     init {
         fetchUserProfile()
         checkBatteryOptimization()
@@ -76,14 +78,15 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
     fun fetchUserProfile() {
         val user = com.google.firebase.auth.FirebaseAuth.getInstance().currentUser
         if (user != null) {
-            app.shouldersofgiants.guardian.data.GuardianRepository.getUserProfile(user.uid) { profile ->
+            profileListener?.remove()
+            profileListener = app.shouldersofgiants.guardian.data.GuardianRepository.observeUserProfile(user.uid) { profile ->
                 _userProfile.value = profile ?: app.shouldersofgiants.guardian.data.UserProfile(
                     id = user.uid,
                     email = user.email ?: "",
-                    role = UserRole.UNDECIDED  // Explicitly set to UNDECIDED for new users
+                    role = UserRole.UNDECIDED
                 )
                 
-                // Sync listening state from profile if roles are matched
+                // Real-time sync of listening state from profile
                 profile?.let { p ->
                     if (p.listeningEnabled != _isListening.value) {
                         toggleListeningMode(p.listeningEnabled, updateFirestore = false)
@@ -299,7 +302,7 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
        // This will now be handled by the UI to navigate to AlertScreen
     }
 
-    fun sendPanicAlertNow(onCompleted: () -> Unit) {
+    fun sendPanicAlertNow(type: String = "PANIC_BUTTON", phrase: String? = null, onCompleted: () -> Unit) {
         _alertStatus.value = "SENDING ALERT..."
         
         // Try to get last location before sending
@@ -308,7 +311,7 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
             fusedLocationClient.lastLocation.addOnSuccessListener { loc: Location? ->
                 val lat = loc?.latitude
                 val lng = loc?.longitude
-                app.shouldersofgiants.guardian.data.GuardianRepository.sendAlert("PANIC_BUTTON", lat, lng) { alertId ->
+                app.shouldersofgiants.guardian.data.GuardianRepository.sendAlert(type, lat, lng, phrase) { alertId ->
                     if (alertId != null) {
                         _alertStatus.value = "ALERT SENT!"
                     } else {
@@ -318,7 +321,7 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
                 }
             }
         } catch (e: SecurityException) {
-            app.shouldersofgiants.guardian.data.GuardianRepository.sendAlert("PANIC_BUTTON") { alertId ->
+            app.shouldersofgiants.guardian.data.GuardianRepository.sendAlert(type, triggerPhrase = phrase) { alertId ->
                 onCompleted()
             }
         }
@@ -334,6 +337,8 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun clearState() {
+        profileListener?.remove()
+        profileListener = null
         _userProfile.value = null
         _family.value = null
         _activeAlerts.value = emptyList()

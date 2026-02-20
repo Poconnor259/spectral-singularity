@@ -125,6 +125,47 @@ fun ManagerDashboard(
                 }
             }
 
+            // Family Members Section
+            val familyMembers by viewModel.familyMembers.collectAsState()
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Family Members",
+                    style = MaterialTheme.typography.titleLarge,
+                    color = Color.White
+                )
+                TextButton(onClick = { /* Could navigate to full list if needed */ }) {
+                    Text("View All", color = Color(0xFF4285F4))
+                }
+            }
+
+            Card(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).padding(bottom = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
+            ) {
+                LazyColumn(Modifier.padding(8.dp)) {
+                    items(familyMembers) { member ->
+                        ListItem(
+                            headlineContent = { Text(member.displayName.ifBlank { member.email }, color = Color.White) },
+                            supportingContent = { Text("Role: ${member.role.name}", color = Color.Gray) },
+                            trailingContent = {
+                                Icon(
+                                    imageVector = if (member.listeningEnabled) Icons.Default.Mic else Icons.Default.MicOff,
+                                    contentDescription = null,
+                                    tint = if (member.listeningEnabled) Color.Green else Color.Gray,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            },
+                            colors = ListItemDefaults.colors(containerColor = Color.Transparent)
+                        )
+                        HorizontalDivider(color = Color.DarkGray, thickness = 0.5.dp)
+                    }
+                }
+            }
+
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                 horizontalArrangement = Arrangement.SpaceBetween,

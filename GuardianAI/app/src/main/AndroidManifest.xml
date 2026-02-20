@@ -45,6 +45,14 @@
             android:foregroundServiceType="microphone|location"
             android:exported="false" />
 
+        <service
+            android:name=".service.GuardianMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <meta-data
             android:name="com.google.android.geo.API_KEY"
             android:value="${MAPS_API_KEY}" />

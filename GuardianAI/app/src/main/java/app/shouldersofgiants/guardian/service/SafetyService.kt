@@ -134,6 +134,7 @@ class SafetyService : Service(), RecognitionListener {
             listenerRegistration = db.collection("users").document(userId)
                 .addSnapshotListener { snapshot, _ ->
                     if (snapshot != null && snapshot.exists()) {
+                        familyId = snapshot.getString("familyId")
                         trackingMode = snapshot.getString("locationTrackingMode") ?: "ALERT_ONLY"
                         val triggerData = snapshot.get("triggerPhrases") as? List<Map<String, Any>>
                         
@@ -305,7 +306,7 @@ class SafetyService : Service(), RecognitionListener {
 
     private fun handleTrigger(trigger: TriggerPhrase) {
         if (trigger.severity == TriggerSeverity.CRITICAL) {
-            triggerAlert()
+            triggerAlert(trigger.phrase, "VOICE_TRIGGER")
         } else {
             sendNotice(trigger.phrase)
         }
@@ -316,6 +317,7 @@ class SafetyService : Service(), RecognitionListener {
         val notice = hashMapOf(
             "type" to "NOTICE",
             "trigger" to phrase,
+            "status" to "ACTIVE",
             "timestamp" to java.util.Date(),
             "userId" to userId,
             "familyId" to familyId,
@@ -354,10 +356,12 @@ class SafetyService : Service(), RecognitionListener {
 
     override fun onEvent(eventType: Int, params: Bundle?) {}
 
-    private fun triggerAlert() {
+    private fun triggerAlert(phrase: String? = null, type: String = "PANIC_BUTTON") {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
             action = "ACTION_TRIGGER_PANIC"
+            putExtra("EXTRA_TRIGGER_TYPE", type)
+            putExtra("EXTRA_TRIGGER_PHRASE", phrase)
         }
         startActivity(intent)
     }

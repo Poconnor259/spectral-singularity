@@ -26,6 +26,8 @@ import kotlinx.coroutines.delay
 fun AlertScreen(
     onCancel: () -> Unit,
     onAlertSent: () -> Unit,
+    triggerType: String = "PANIC_BUTTON",
+    triggerPhrase: String? = null,
     viewModel: GuardianViewModel = viewModel()
 ) {
     var ticks by remember { mutableStateOf(5) }
@@ -52,7 +54,7 @@ fun AlertScreen(
         // Send actual alert
         if (!isSent) {
             isSent = true // Prevent double firing
-            viewModel.sendPanicAlertNow {
+            viewModel.sendPanicAlertNow(triggerType, triggerPhrase) {
                 // Stay on screen but change state to SENT
                 onAlertSent()
             }

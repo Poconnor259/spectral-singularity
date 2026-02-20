@@ -38,13 +38,17 @@ exports.onAlertCreated = functions.firestore
         }
 
         // 2. Send Push Notification
+        const isNotice = type === 'NOTICE';
+        const title = isNotice ? `Family Notice: ${alertData.trigger || ''}` : `EMERGENCY: ${type}`;
+        const body = isNotice ? "A family member shared a voice notice." : "A family member needs help! Tap to see their location.";
+
         const message = {
             notification: {
-                title: `EMERGENCY: ${type}`,
-                body: "A family member needs help! Tap to see their location.",
+                title: title,
+                body: body,
             },
             data: {
-                click_action: "FLUTTER_NOTIFICATION_CLICK", // For older systems if needed
+                click_action: "FLUTTER_NOTIFICATION_CLICK",
                 alertId: context.params.alertId,
                 type: type,
                 userId: userId

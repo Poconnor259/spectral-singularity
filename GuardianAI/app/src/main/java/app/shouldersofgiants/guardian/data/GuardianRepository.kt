@@ -162,6 +162,45 @@ object GuardianRepository {
             }
     }
 
+    fun observeUserProfile(userId: String?, callback: (UserProfile?) -> Unit): com.google.firebase.firestore.ListenerRegistration? {
+        if (userId == null) {
+            callback(null)
+            return null
+        }
+        return db.collection("users").document(userId).addSnapshotListener { doc, error ->
+            if (error != null) {
+                Log.e("GuardianRepo", "Error observing user profile", error)
+                callback(null)
+                return@addSnapshotListener
+            }
+            if (doc != null && doc.exists()) {
+                var email = doc.getString("email") ?: ""
+                val profile = UserProfile(
+                    id = doc.id,
+                    email = email,
+                    displayName = doc.getString("displayName") ?: "",
+                    role = UserRole.valueOf(doc.getString("role") ?: UserRole.UNDECIDED.name),
+                    familyId = doc.getString("familyId"),
+                    fcmToken = doc.getString("fcmToken"),
+                    lastLat = doc.getDouble("lastLat"),
+                    lastLng = doc.getDouble("lastLng"),
+                    lastLocationUpdate = doc.getLong("lastLocationUpdate"),
+                    locationTrackingMode = doc.getString("locationTrackingMode") ?: "ALERT_ONLY",
+                    listeningEnabled = doc.getBoolean("listeningEnabled") ?: false,
+                    triggerPhrases = (doc.get("triggerPhrases") as? List<Map<String, Any>>)?.map {
+                        TriggerPhrase(
+                            phrase = it["phrase"] as? String ?: "",
+                            severity = TriggerSeverity.valueOf(it["severity"] as? String ?: TriggerSeverity.CRITICAL.name)
+                        )
+                    } ?: emptyList()
+                )
+                callback(profile)
+            } else {
+                callback(null)
+            }
+        }
+    }
+
     fun getUserProfile(userId: String?, callback: (UserProfile?) -> Unit) {
         if (userId == null) {
             callback(null)
