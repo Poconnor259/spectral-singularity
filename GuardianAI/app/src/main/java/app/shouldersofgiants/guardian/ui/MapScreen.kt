@@ -23,6 +23,10 @@ import com.google.android.gms.maps.model.LatLng
 import com.google.android.gms.maps.model.BitmapDescriptorFactory
 import com.google.maps.android.compose.*
 import app.shouldersofgiants.guardian.data.Alert
+import app.shouldersofgiants.guardian.data.SafeZone
+import app.shouldersofgiants.guardian.data.UserRole
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 
 @Composable
 fun MapScreen(
@@ -32,6 +36,12 @@ fun MapScreen(
     val activeAlerts by viewModel.activeAlerts.collectAsState()
     val familyMembers by viewModel.familyMembers.collectAsState()
     val userProfile by viewModel.userProfile.collectAsState()
+    val family by viewModel.family.collectAsState()
+    
+    var showAddZoneDialog by remember { mutableStateOf<LatLng?>(null) }
+    var showGeofenceMenu by remember { mutableStateOf(false) }
+    var editingZone by remember { mutableStateOf<SafeZone?>(null) }
+    var movingZone by remember { mutableStateOf<SafeZone?>(null) }
     
     var expanded by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
@@ -94,8 +104,37 @@ fun MapScreen(
             modifier = Modifier.fillMaxSize(),
             cameraPositionState = cameraPositionState,
             uiSettings = MapUiSettings(myLocationButtonEnabled = false),
-            properties = MapProperties(isMyLocationEnabled = false)
+            properties = MapProperties(isMyLocationEnabled = false),
+            onMapClick = { latLng ->
+                if (userProfile?.role == UserRole.MANAGER) {
+                    if (movingZone != null) {
+                        val currentZones = family?.safeZones?.toMutableList() ?: mutableListOf()
+                        val idx = currentZones.indexOfFirst { it.id == movingZone!!.id }
+                        if (idx != -1) {
+                            currentZones[idx] = movingZone!!.copy(
+                                lat = latLng.latitude,
+                                lng = latLng.longitude
+                            )
+                            viewModel.updateSafeZones(currentZones)
+                        }
+                        movingZone = null
+                    } else {
+                        showAddZoneDialog = latLng
+                    }
+                }
+            }
         ) {
+            // Draw Safe Zones
+            family?.safeZones?.forEach { zone ->
+                val isMoving = zone.id == movingZone?.id
+                Circle(
+                    center = LatLng(zone.lat, zone.lng),
+                    radius = zone.radiusMeters.toDouble(),
+                    fillColor = if (isMoving) Color(0xFFF4B400).copy(alpha = 0.4f) else Color(0xFF34A853).copy(alpha = 0.2f),
+                    strokeColor = if (isMoving) Color(0xFFF4B400) else Color(0xFF34A853),
+                    strokeWidth = if (isMoving) 4f else 2f
+                )
+            }
             // Alerts markers
             activeAlerts.forEach { alert ->
                 if (alert.lat != null && alert.lng != null) {
@@ -184,6 +223,19 @@ fun MapScreen(
             containerColor = Color.White
         ) {
             Icon(Icons.Default.ArrowBack, contentDescription = "Back", tint = Color.Black)
+        }
+
+        // Geofence Management Button (Above "Center on Me")
+        if (userProfile?.role == UserRole.MANAGER && movingZone == null) {
+            FloatingActionButton(
+                onClick = { showGeofenceMenu = true },
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(bottom = 104.dp, start = 16.dp), // Positioned above the Location button
+                containerColor = Color.White
+            ) {
+                Icon(Icons.Default.Map, contentDescription = "Manage Safe Zones", tint = Color(0xFF34A853))
+            }
         }
 
         // Center on Me button (Moved to Left Side)
@@ -292,5 +344,155 @@ fun MapScreen(
                 }
             }
         }
+
+        // Active Moving Overlay
+        if (movingZone != null) {
+            Card(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .statusBarsPadding()
+                    .padding(top = 16.dp),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFF4B400))
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(16.dp)) {
+                    Text("Tap anywhere on the map to place '${movingZone?.name}'", color = Color.White, fontWeight = FontWeight.Bold)
+                    Spacer(modifier = Modifier.width(16.dp))
+                    IconButton(onClick = { movingZone = null }, modifier = Modifier.size(24.dp)) {
+                        Icon(Icons.Default.Close, contentDescription = "Cancel Move", tint = Color.White)
+                    }
+                }
+            }
+        }
+    }
+
+    if (showGeofenceMenu) {
+        AlertDialog(
+            onDismissRequest = { showGeofenceMenu = false },
+            title = { Text("Manage Safe Zones") },
+            text = {
+                val zones = family?.safeZones ?: emptyList()
+                if (zones.isEmpty()) {
+                    Text("No Safe Zones defined yet. Tap anywhere on the map to create one.")
+                } else {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .heightIn(max = 300.dp)
+                            .verticalScroll(rememberScrollState()),
+                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        zones.forEach { zone ->
+                            Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth().padding(8.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(zone.name, fontWeight = FontWeight.Bold)
+                                        Text("Radius: ${zone.radiusMeters.toInt()}m", style = MaterialTheme.typography.bodySmall)
+                                    }
+                                    IconButton(onClick = {
+                                        editingZone = zone
+                                        showGeofenceMenu = false
+                                    }) {
+                                        Icon(Icons.Default.Edit, contentDescription = "Edit")
+                                    }
+                                    IconButton(onClick = {
+                                        val newZones = family?.safeZones?.filter { it.id != zone.id }
+                                        if (newZones != null) viewModel.updateSafeZones(newZones)
+                                    }) {
+                                        Icon(Icons.Default.Delete, contentDescription = "Delete", tint = Color.Red)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showGeofenceMenu = false }) {
+                    Text("Close")
+                }
+            }
+        )
+    }
+
+    if (showAddZoneDialog != null || editingZone != null) {
+        var zoneName by remember(editingZone) { mutableStateOf(editingZone?.name ?: "") }
+        var zoneRadius by remember(editingZone) { mutableStateOf(editingZone?.radiusMeters ?: 100f) }
+
+        AlertDialog(
+            onDismissRequest = { 
+                showAddZoneDialog = null
+                editingZone = null 
+            },
+            title = { Text(if (editingZone != null) "Edit Safe Zone" else "Create Safe Zone") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = zoneName,
+                        onValueChange = { zoneName = it },
+                        label = { Text("Zone Name (e.g. Home, School)") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Radius: ${zoneRadius.toInt()} meters", style = MaterialTheme.typography.titleSmall)
+                    Slider(
+                        value = zoneRadius,
+                        onValueChange = { zoneRadius = it },
+                        valueRange = 50f..1000f,
+                        steps = 19,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        val currentZones = family?.safeZones?.toMutableList() ?: mutableListOf()
+                        if (editingZone != null) {
+                            val idx = currentZones.indexOfFirst { it.id == editingZone!!.id }
+                            if (idx != -1) {
+                                currentZones[idx] = editingZone!!.copy(
+                                    name = zoneName.ifBlank { "Safe Zone" },
+                                    radiusMeters = zoneRadius
+                                )
+                            }
+                        } else {
+                            currentZones.add(SafeZone(
+                                name = zoneName.ifBlank { "Safe Zone" },
+                                lat = showAddZoneDialog!!.latitude,
+                                lng = showAddZoneDialog!!.longitude,
+                                radiusMeters = zoneRadius
+                            ))
+                        }
+                        viewModel.updateSafeZones(currentZones)
+                        showAddZoneDialog = null
+                        editingZone = null
+                    },
+                    enabled = zoneName.isNotBlank()
+                ) {
+                    Text("Save")
+                }
+            },
+            dismissButton = {
+                Row {
+                    if (editingZone != null) {
+                        TextButton(onClick = { 
+                            movingZone = editingZone
+                            editingZone = null 
+                        }) {
+                            Text("Move on Map", color = Color(0xFF4285F4))
+                        }
+                    }
+                    TextButton(onClick = { 
+                        showAddZoneDialog = null
+                        editingZone = null 
+                    }) {
+                        Text("Cancel")
+                    }
+                }
+            }
+        )
     }
 }

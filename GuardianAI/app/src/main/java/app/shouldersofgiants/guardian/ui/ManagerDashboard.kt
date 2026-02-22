@@ -16,6 +16,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import app.shouldersofgiants.guardian.data.UserRole
+import app.shouldersofgiants.guardian.ui.components.GlassCard
 import app.shouldersofgiants.guardian.viewmodel.GuardianViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -73,9 +74,8 @@ fun ManagerDashboard(
                 .padding(16.dp)
         ) {
             // Family Summary Card
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF222222))
+            GlassCard(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
@@ -142,9 +142,8 @@ fun ManagerDashboard(
                 }
             }
 
-            Card(
-                modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).padding(bottom = 16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
+            GlassCard(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 200.dp).padding(bottom = 16.dp)
             ) {
                 LazyColumn(Modifier.padding(8.dp)) {
                     items(familyMembers) { member ->
@@ -185,9 +184,8 @@ fun ManagerDashboard(
             }
 
             // Trigger Phrases List
-            Card(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
+            GlassCard(
+                modifier = Modifier.fillMaxWidth().weight(1f)
             ) {
                 LazyColumn(Modifier.padding(8.dp)) {
                     val triggers = family?.triggerPhrases ?: emptyList()
@@ -230,6 +228,7 @@ fun ManagerDashboard(
     if (showEditTriggerDialog) {
         var phrase by remember { mutableStateOf(selectedTrigger?.phrase ?: "") }
         var severity by remember { mutableStateOf(selectedTrigger?.severity ?: app.shouldersofgiants.guardian.data.TriggerSeverity.CRITICAL) }
+        var sensitivity by remember { mutableStateOf(selectedTrigger?.sensitivity ?: 0.8f) }
 
         AlertDialog(
             onDismissRequest = { 
@@ -256,6 +255,17 @@ fun ManagerDashboard(
                             )
                         }
                     }
+                    
+                    Spacer(Modifier.height(8.dp))
+                    Text("Sensitivity: ${(sensitivity * 100).toInt()}%", style = MaterialTheme.typography.titleSmall)
+                    Slider(
+                        value = sensitivity,
+                        onValueChange = { sensitivity = it },
+                        valueRange = 0.4f..1.0f,
+                        steps = 5,
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    Text("Lower percentage means it's more forgiving on mispronunciations (Fuzzy matching).", style = MaterialTheme.typography.bodySmall, color = Color.Gray)
                 }
             },
             confirmButton = {
@@ -265,10 +275,10 @@ fun ManagerDashboard(
                         if (selectedTrigger != null) {
                             val index = currentPhrases.indexOfFirst { it.phrase == selectedTrigger?.phrase }
                             if (index != -1) {
-                                currentPhrases[index] = app.shouldersofgiants.guardian.data.TriggerPhrase(phrase, severity)
+                                currentPhrases[index] = app.shouldersofgiants.guardian.data.TriggerPhrase(phrase, severity, sensitivity)
                             }
                         } else {
-                            currentPhrases.add(app.shouldersofgiants.guardian.data.TriggerPhrase(phrase, severity))
+                            currentPhrases.add(app.shouldersofgiants.guardian.data.TriggerPhrase(phrase, severity, sensitivity))
                         }
                         viewModel.updateTriggerPhrases(currentPhrases)
                         showEditTriggerDialog = false

@@ -62,8 +62,12 @@ class MainActivity : ComponentActivity() {
                     val permissions = mutableListOf(
                         android.Manifest.permission.RECORD_AUDIO,
                         android.Manifest.permission.ACCESS_FINE_LOCATION,
-                        android.Manifest.permission.ACCESS_COARSE_LOCATION
+                        android.Manifest.permission.ACCESS_COARSE_LOCATION,
+                        android.Manifest.permission.SEND_SMS
                     )
+                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                        permissions.add(android.Manifest.permission.ACTIVITY_RECOGNITION)
+                    }
                     if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
                         permissions.add(android.Manifest.permission.POST_NOTIFICATIONS)
                     }

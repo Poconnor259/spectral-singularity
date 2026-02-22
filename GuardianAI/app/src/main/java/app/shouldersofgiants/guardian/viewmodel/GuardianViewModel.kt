@@ -156,36 +156,32 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
     fun createFamily(name: String, onError: (String) -> Unit = {}) {
         val userId = _userProfile.value?.id ?: return
         
-        var completed = false
         viewModelScope.launch {
-            delay(15000) // 15 second timeout
-            if (!completed) {
-                onError("Operation timed out. Please check your internet connection and Firebase configuration.")
+            val result = kotlinx.coroutines.withTimeoutOrNull(15000) {
+                kotlinx.coroutines.suspendCancellableCoroutine<String?> { cont ->
+                    app.shouldersofgiants.guardian.data.GuardianRepository.createFamily(name, userId) { fid ->
+                        if (cont.isActive) cont.resume(fid) {}
+                    }
+                }
             }
-        }
-
-        app.shouldersofgiants.guardian.data.GuardianRepository.createFamily(name, userId) { fid ->
-            completed = true
-            if (fid != null) fetchUserProfile()
-            else onError("Failed to create family")
+            if (result != null) fetchUserProfile()
+            else onError("Operation failed or timed out. Please check your internet connection.")
         }
     }
 
     fun joinFamily(inviteCode: String, role: UserRole, onError: (String) -> Unit = {}) {
         val userId = _userProfile.value?.id ?: return
         
-        var completed = false
         viewModelScope.launch {
-            delay(15000) // 15 second timeout
-            if (!completed) {
-                onError("Operation timed out. Please check your internet connection.")
+            val success = kotlinx.coroutines.withTimeoutOrNull(15000) {
+                kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { cont ->
+                    app.shouldersofgiants.guardian.data.GuardianRepository.joinFamily(inviteCode, userId, role) { result ->
+                        if (cont.isActive) cont.resume(result) {}
+                    }
+                }
             }
-        }
-
-        app.shouldersofgiants.guardian.data.GuardianRepository.joinFamily(inviteCode, userId, role) { success ->
-            completed = true
-            if (success) fetchUserProfile()
-            else onError("Family not found or join failed")
+            if (success == true) fetchUserProfile()
+            else onError("Family not found, join failed, or operation timed out.")
         }
     }
 
@@ -311,18 +307,78 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
             fusedLocationClient.lastLocation.addOnSuccessListener { loc: Location? ->
                 val lat = loc?.latitude
                 val lng = loc?.longitude
-                app.shouldersofgiants.guardian.data.GuardianRepository.sendAlert(type, lat, lng, phrase) { alertId ->
-                    if (alertId != null) {
-                        _alertStatus.value = "ALERT SENT!"
-                    } else {
-                        _alertStatus.value = "FAILED TO SEND"
-                    }
-                    onCompleted()
-                }
+                sendAlertWithFallback(type, lat, lng, phrase, onCompleted)
+            }.addOnFailureListener {
+                sendAlertWithFallback(type, null, null, phrase, onCompleted)
             }
         } catch (e: SecurityException) {
-            app.shouldersofgiants.guardian.data.GuardianRepository.sendAlert(type, triggerPhrase = phrase) { alertId ->
-                onCompleted()
+            sendAlertWithFallback(type, null, null, phrase, onCompleted)
+        }
+    }
+
+    private fun sendAlertWithFallback(type: String, lat: Double?, lng: Double?, phrase: String?, onCompleted: () -> Unit) {
+        viewModelScope.launch {
+            val result = try {
+                kotlinx.coroutines.withTimeoutOrNull(5000) {
+                    kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { cont ->
+                        app.shouldersofgiants.guardian.data.GuardianRepository.sendAlert(type, lat, lng, phrase) { alertId ->
+                            if (alertId != null) {
+                                if (cont.isActive) cont.resume(true) {}
+                            } else {
+                                if (cont.isActive) cont.resume(false) {}
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                false
+            }
+
+            if (result == true) {
+                _alertStatus.value = "ALERT SENT!"
+            } else {
+                _alertStatus.value = "OFFLINE: SENDING SMS..."
+                sendSmsFallback(type, lat, lng, phrase)
+                _alertStatus.value = "SMS SENT TO FAMILY"
+            }
+            onCompleted()
+        }
+    }
+
+    private fun sendSmsFallback(type: String, lat: Double?, lng: Double?, phrase: String?) {
+        val userName = _userProfile.value?.displayName?.takeIf { it.isNotBlank() } ?: "A family member"
+        val message = buildString {
+            append("GUARDIAN ALERT: $userName triggered a $type")
+            if (phrase != null) append(" (\"$phrase\")")
+            append("! ")
+            if (lat != null && lng != null) {
+                val formattedLat = "%.4f".format(lat)
+                val formattedLng = "%.4f".format(lng)
+                append("Location: maps.google.com/?q=$formattedLat,$formattedLng")
+            } else {
+                append("Location unavailable.")
+            }
+        }
+        
+        val smsManager: android.telephony.SmsManager = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
+            getApplication<Application>().getSystemService(android.telephony.SmsManager::class.java)
+        } else {
+            @Suppress("DEPRECATION")
+            android.telephony.SmsManager.getDefault()
+        }
+
+        // We text all loaded contacts
+        // If the user's family members' numbers are not securely stored locally,
+        // we at least try to text the registered emergency 'contacts'
+        _contacts.value.forEach { contact ->
+            if (contact.phoneNumber.isNotBlank()) {
+                try {
+                    val phone = contact.phoneNumber.replace("-", "").replace(" ", "").replace("(", "").replace(")", "")
+                    smsManager.sendTextMessage(phone, null, message, null, null)
+                    app.shouldersofgiants.guardian.data.LogRepository.addLog("SMS sent to ${contact.name}")
+                } catch (e: Exception) {
+                    android.util.Log.e("GuardianViewModel", "Failed to send SMS to ${contact.name}", e)
+                }
             }
         }
     }
@@ -330,6 +386,15 @@ class GuardianViewModel(application: Application) : AndroidViewModel(application
     fun updateTriggerPhrases(phrases: List<app.shouldersofgiants.guardian.data.TriggerPhrase>) {
         val familyId = _family.value?.id ?: return
         app.shouldersofgiants.guardian.data.GuardianRepository.updateTriggerPhrases(familyId, phrases) { success ->
+            if (success) {
+                loadFamily(familyId)
+            }
+        }
+    }
+
+    fun updateSafeZones(zones: List<app.shouldersofgiants.guardian.data.SafeZone>) {
+        val familyId = _family.value?.id ?: return
+        app.shouldersofgiants.guardian.data.GuardianRepository.updateSafeZones(familyId, zones) { success ->
             if (success) {
                 loadFamily(familyId)
             }

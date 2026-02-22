@@ -28,6 +28,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.shouldersofgiants.guardian.ui.components.GlassCard
 import app.shouldersofgiants.guardian.viewmodel.GuardianViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -202,15 +203,8 @@ fun MainScreen(
 }
 @Composable
 fun StatusCard(isListening: Boolean) {
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        colors = CardDefaults.cardColors(
-            containerColor = if (isListening) 
-                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f) 
-            else 
-                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
-        ),
-        shape = RoundedCornerShape(24.dp)
+    GlassCard(
+        modifier = Modifier.fillMaxWidth()
     ) {
         Row(
             modifier = Modifier.padding(20.dp),
@@ -242,13 +236,10 @@ fun StatusCard(isListening: Boolean) {
 
 @Composable
 fun FamilyNetworkCard(contactCount: Int, onClick: () -> Unit) {
-    Card(
+    GlassCard(
         modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
-        shape = RoundedCornerShape(24.dp)
+            .clickable(onClick = onClick)
     ) {
         Row(
             modifier = Modifier.padding(20.dp),

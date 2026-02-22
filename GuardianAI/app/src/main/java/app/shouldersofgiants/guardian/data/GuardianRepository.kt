@@ -330,11 +330,23 @@ object GuardianRepository {
                         TriggerPhrase("Emergency", TriggerSeverity.CRITICAL)
                     )
 
+                    val zonesRaw = doc.get("safeZones") as? List<Map<String, Any>>
+                    val safeZones = zonesRaw?.map {
+                        SafeZone(
+                            id = it["id"] as? String ?: "",
+                            name = it["name"] as? String ?: "",
+                            lat = (it["lat"] as? Double) ?: 0.0,
+                            lng = (it["lng"] as? Double) ?: 0.0,
+                            radiusMeters = (it["radiusMeters"] as? Double)?.toFloat() ?: 100f
+                        )
+                    } ?: emptyList()
+
                     val family = Family(
                         id = doc.id,
                         name = doc.getString("name") ?: "",
                         managerId = doc.getString("managerId") ?: "",
                         inviteCode = doc.getString("inviteCode") ?: "",
+                        safeZones = safeZones,
                         triggerPhrases = phrases
                     )
                     callback(family)
@@ -352,6 +364,16 @@ object GuardianRepository {
             .addOnSuccessListener { callback(true) }
             .addOnFailureListener { e ->
                 Log.e("GuardianRepo", "Error updating trigger phrases", e)
+                callback(false)
+            }
+    }
+
+    fun updateSafeZones(familyId: String, zones: List<SafeZone>, callback: (Boolean) -> Unit) {
+        db.collection("families").document(familyId)
+            .update("safeZones", zones)
+            .addOnSuccessListener { callback(true) }
+            .addOnFailureListener { e ->
+                Log.e("GuardianRepo", "Error updating safe zones", e)
                 callback(false)
             }
     }

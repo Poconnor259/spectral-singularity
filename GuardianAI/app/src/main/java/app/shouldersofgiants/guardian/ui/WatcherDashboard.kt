@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import app.shouldersofgiants.guardian.ui.components.GlassCard
 import app.shouldersofgiants.guardian.viewmodel.GuardianViewModel
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -59,9 +60,8 @@ fun WatcherDashboard(
                 .padding(16.dp)
         ) {
             // Family Summary Card
-            Card(
-                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF222222))
+            GlassCard(
+                modifier = Modifier.fillMaxWidth().padding(bottom = 16.dp)
             ) {
                 Column(Modifier.padding(16.dp)) {
                     Text(
@@ -79,9 +79,8 @@ fun WatcherDashboard(
             }
 
             // Map Card
-            Card(
-                modifier = Modifier.fillMaxWidth().height(200.dp).padding(bottom = 16.dp),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
+            GlassCard(
+                modifier = Modifier.fillMaxWidth().height(200.dp).padding(bottom = 16.dp)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -103,9 +102,8 @@ fun WatcherDashboard(
             )
 
             // Alert History placeholder
-            Card(
-                modifier = Modifier.fillMaxWidth().weight(1f),
-                colors = CardDefaults.cardColors(containerColor = Color(0xFF1E1E1E))
+            GlassCard(
+                modifier = Modifier.fillMaxWidth().weight(1f)
             ) {
                 Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxSize()) {
                     Text("No recent alerts found", color = Color.Gray)

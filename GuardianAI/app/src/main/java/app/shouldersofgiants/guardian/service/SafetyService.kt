@@ -8,6 +8,8 @@ import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.content.IntentFilter
+import android.os.BatteryManager
 import android.os.Build
 import android.os.Bundle
 import android.os.IBinder
@@ -21,6 +23,11 @@ import app.shouldersofgiants.guardian.R
 import app.shouldersofgiants.guardian.data.TriggerPhrase
 import app.shouldersofgiants.guardian.data.TriggerSeverity
 import com.google.android.gms.location.*
+import com.google.android.gms.location.ActivityRecognition
+import com.google.android.gms.location.ActivityTransition
+import com.google.android.gms.location.ActivityTransitionRequest
+import com.google.android.gms.location.ActivityTransitionResult
+import com.google.android.gms.location.DetectedActivity
 import com.google.firebase.Firebase
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.ListenerRegistration
@@ -35,6 +42,7 @@ class SafetyService : Service(), RecognitionListener {
     private var familyId: String? = null
     private var triggerPhrases = mutableListOf<TriggerPhrase>()
     private var listenerRegistration: ListenerRegistration? = null
+    private var alertListenerRegistration: ListenerRegistration? = null
     private var lastLoggedText: String = ""
     
     private lateinit var fusedLocationClient: FusedLocationProviderClient
@@ -43,41 +51,91 @@ class SafetyService : Service(), RecognitionListener {
     private var trackingMode: String = "ALERT_ONLY"
     private var lastLat: Double? = null
     private var lastLng: Double? = null
+    private var isCrisisMode: Boolean = false
+    private var hasSentLowBatteryNotice: Boolean = false
+    private var consecutiveSpeechErrors: Int = 0
+    private var backoffDelayMs: Long = 1000L
+    private var isStationary: Boolean = false
+    private var activityPendingIntent: PendingIntent? = null
+
+    private lateinit var geofencingClient: GeofencingClient
+    private var geofencePendingIntent: PendingIntent? = null
+    private var familyListenerRegistration: ListenerRegistration? = null
+    private var currentSafeZones = listOf<app.shouldersofgiants.guardian.data.SafeZone>()
 
     companion object {
         const val CHANNEL_ID = "GuardianServiceChannel"
         const val ACTION_START = "ACTION_START"
         const val ACTION_STOP = "ACTION_STOP"
+        const val ACTION_ACTIVITY_TRANSITION = "ACTION_ACTIVITY_TRANSITION"
     }
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         fusedLocationClient = LocationServices.getFusedLocationProviderClient(this)
-        setupLocationRequest()
+        geofencingClient = LocationServices.getGeofencingClient(this)
+        updateLocationRequest()
     }
 
-    private fun setupLocationRequest() {
-        locationRequest = LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 10000) // 10s
-            .setMinUpdateIntervalMillis(5000) // 5s
-            .build()
-
-        locationCallback = object : LocationCallback() {
-            override fun onLocationResult(result: LocationResult) {
-                result.lastLocation?.let { location ->
-                    lastLat = location.latitude
-                    lastLng = location.longitude
-                    
-                    if (trackingMode == "ALWAYS") {
-                        val userId = FirebaseAuth.getInstance().currentUser?.uid
-                        userId?.let { uid ->
-                            app.shouldersofgiants.guardian.data.GuardianRepository.updateUserLocation(uid, location.latitude, location.longitude)
+    private fun updateLocationRequest() {
+        if (!this::locationCallback.isInitialized) {
+            locationCallback = object : LocationCallback() {
+                override fun onLocationResult(result: LocationResult) {
+                    result.lastLocation?.let { location ->
+                        lastLat = location.latitude
+                        lastLng = location.longitude
+                        
+                        if (trackingMode == "ALWAYS" || isCrisisMode) {
+                            val userId = FirebaseAuth.getInstance().currentUser?.uid
+                            userId?.let { uid ->
+                                app.shouldersofgiants.guardian.data.GuardianRepository.updateUserLocation(uid, location.latitude, location.longitude)
+                            }
                         }
+                        updateNotification("Listening & Tracking: ${location.latitude.format(3)}, ${location.longitude.format(3)}${if (isCrisisMode) " (CRISIS MODE)" else ""}")
                     }
-                    updateNotification("Listening & Tracking: ${location.latitude.format(3)}, ${location.longitude.format(3)}")
                 }
             }
         }
+
+        val wasRequesting = isListening
+        if (wasRequesting) stopLocationUpdates()
+
+        val builder = if (isCrisisMode) {
+            val batteryPct = getBatteryPercentage()
+            if (batteryPct > 20f) {
+                hasSentLowBatteryNotice = false
+                LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 1000)
+                    .setMinUpdateIntervalMillis(1000)
+            } else {
+                if (!hasSentLowBatteryNotice) {
+                    sendNotice("Low Battery (<20%) - Location tracking slowed down.")
+                    hasSentLowBatteryNotice = true
+                }
+                LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 5000)
+                    .setMinUpdateIntervalMillis(5000)
+            }
+        } else {
+            hasSentLowBatteryNotice = false
+            if (isStationary) {
+                LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, 300000) // 5 minutes
+                    .setMinUpdateIntervalMillis(300000)
+            } else {
+                LocationRequest.Builder(Priority.PRIORITY_HIGH_ACCURACY, 60000)
+                    .setMinUpdateIntervalMillis(30000)
+                    .setMinUpdateDistanceMeters(50f)
+            }
+        }
+        
+        locationRequest = builder.build()
+        if (wasRequesting) startLocationUpdates()
+    }
+
+    private fun getBatteryPercentage(): Float {
+        val batteryStatus: Intent? = registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
+        val level: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
+        val scale: Int = batteryStatus?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
+        return if (scale == -1) 100f else level * 100 / scale.toFloat()
     }
 
     private fun Double.format(digits: Int) = "%.${digits}f".format(this)
@@ -86,6 +144,28 @@ class SafetyService : Service(), RecognitionListener {
         when (intent?.action) {
             ACTION_START -> startForegroundService()
             ACTION_STOP -> stopForegroundService()
+            ACTION_ACTIVITY_TRANSITION -> {
+                if (ActivityTransitionResult.hasResult(intent)) {
+                    val result = ActivityTransitionResult.extractResult(intent)
+                    for (event in result?.transitionEvents ?: emptyList()) {
+                        if (event.activityType == DetectedActivity.STILL) {
+                            if (event.transitionType == ActivityTransition.ACTIVITY_TRANSITION_ENTER) {
+                                if (!isStationary) {
+                                    isStationary = true
+                                    broadcastLog("Activity: User is STILL. GPS polling throttled to 5 mins.")
+                                    updateLocationRequest()
+                                }
+                            } else if (event.transitionType == ActivityTransition.ACTIVITY_TRANSITION_EXIT) {
+                                if (isStationary) {
+                                    isStationary = false
+                                    broadcastLog("Activity: User is MOVING. Resuming normal GPS polling.")
+                                    updateLocationRequest()
+                                }
+                            }
+                        }
+                    }
+                }
+            }
         }
         return START_STICKY
     }
@@ -118,6 +198,7 @@ class SafetyService : Service(), RecognitionListener {
         }
         
         startLocationUpdates()
+        setupActivityRecognition()
         
         // Load initial triggers from local storage (Offline support)
         val localTriggers = app.shouldersofgiants.guardian.data.GuardianRepository.getLocalTriggerPhrases(this)
@@ -134,7 +215,13 @@ class SafetyService : Service(), RecognitionListener {
             listenerRegistration = db.collection("users").document(userId)
                 .addSnapshotListener { snapshot, _ ->
                     if (snapshot != null && snapshot.exists()) {
+                        val oldFamilyId = this@SafetyService.familyId
                         familyId = snapshot.getString("familyId")
+                        if (oldFamilyId != familyId && familyId != null) {
+                            listenForFamilyAlerts(familyId!!)
+                            listenForFamilyDetails(familyId!!)
+                        }
+                        
                         trackingMode = snapshot.getString("locationTrackingMode") ?: "ALERT_ONLY"
                         val triggerData = snapshot.get("triggerPhrases") as? List<Map<String, Any>>
                         
@@ -145,7 +232,8 @@ class SafetyService : Service(), RecognitionListener {
                                     phrase = map["phrase"] as? String ?: "",
                                     severity = app.shouldersofgiants.guardian.data.TriggerSeverity.valueOf(
                                         map["severity"] as? String ?: "CRITICAL"
-                                    )
+                                    ),
+                                    sensitivity = (map["sensitivity"] as? Double)?.toFloat() ?: 0.8f
                                 ))
                             }
                         } else {
@@ -170,10 +258,97 @@ class SafetyService : Service(), RecognitionListener {
         broadcastLog("Service Started")
     }
 
+    private fun listenForFamilyAlerts(famId: String) {
+        alertListenerRegistration?.remove()
+        alertListenerRegistration = Firebase.firestore.collection("alerts")
+            .whereEqualTo("familyId", famId)
+            .whereEqualTo("status", "ACTIVE")
+            .addSnapshotListener { snapshot, _ ->
+                val hasAlerts = snapshot?.documents?.isNotEmpty() == true
+                if (isCrisisMode != hasAlerts) {
+                    isCrisisMode = hasAlerts
+                    broadcastLog("Crisis Mode changed to: $isCrisisMode")
+                    updateLocationRequest()
+                }
+            }
+    }
+
+    private fun listenForFamilyDetails(famId: String) {
+        familyListenerRegistration?.remove()
+        familyListenerRegistration = Firebase.firestore.collection("families").document(famId)
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null && snapshot.exists()) {
+                    val zonesRaw = snapshot.get("safeZones") as? List<Map<String, Any>>
+                    val newZones = zonesRaw?.map {
+                        app.shouldersofgiants.guardian.data.SafeZone(
+                            id = it["id"] as? String ?: "",
+                            name = it["name"] as? String ?: "",
+                            lat = (it["lat"] as? Double) ?: 0.0,
+                            lng = (it["lng"] as? Double) ?: 0.0,
+                            radiusMeters = (it["radiusMeters"] as? Double)?.toFloat() ?: 100f
+                        )
+                    } ?: emptyList()
+                    updateGeofences(newZones)
+                }
+            }
+    }
+
+    private fun updateGeofences(zones: List<app.shouldersofgiants.guardian.data.SafeZone>) {
+        if (zones == currentSafeZones) return
+        currentSafeZones = zones
+        
+        val intent = Intent(this, GeofenceBroadcastReceiver::class.java)
+        geofencePendingIntent = PendingIntent.getBroadcast(
+            this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE
+        )
+
+        try {
+            geofencingClient.removeGeofences(geofencePendingIntent!!).addOnCompleteListener {
+                if (zones.isEmpty()) return@addOnCompleteListener
+                
+                val geofenceList = zones.map { zone ->
+                    Geofence.Builder()
+                        .setRequestId(zone.name)
+                        .setCircularRegion(zone.lat, zone.lng, zone.radiusMeters)
+                        .setExpirationDuration(Geofence.NEVER_EXPIRE)
+                        .setTransitionTypes(Geofence.GEOFENCE_TRANSITION_ENTER or Geofence.GEOFENCE_TRANSITION_EXIT)
+                        .build()
+                }
+                
+                val req = GeofencingRequest.Builder()
+                    .setInitialTrigger(GeofencingRequest.INITIAL_TRIGGER_ENTER)
+                    .addGeofences(geofenceList)
+                    .build()
+                    
+                try {
+                    geofencingClient.addGeofences(req, geofencePendingIntent!!)
+                        .addOnSuccessListener { broadcastLog("Registered ${zones.size} Geofences successfully.") }
+                        .addOnFailureListener { e -> Log.e("SafetyService", "Failed to add geofences", e) }
+                } catch (e: SecurityException) {
+                    Log.e("SafetyService", "Missing location permissions for Geofence", e)
+                }
+            }
+        } catch (e: SecurityException) { }
+    }
+
     private fun stopForegroundService() {
         isListening = false
         stopLocationUpdates()
+        
+        activityPendingIntent?.let {
+            try {
+                ActivityRecognition.getClient(this).removeActivityTransitionUpdates(it)
+            } catch (e: SecurityException) {
+                Log.e("SafetyService", "Failed to remove activity updates", e)
+            }
+        }
+        
         listenerRegistration?.remove()
+        alertListenerRegistration?.remove()
+        familyListenerRegistration?.remove()
+        geofencePendingIntent?.let {
+            try { geofencingClient.removeGeofences(it) } catch (e: SecurityException) {}
+        }
         speechRecognizer?.let {
             it.stopListening()
             it.cancel()
@@ -195,6 +370,39 @@ class SafetyService : Service(), RecognitionListener {
 
     private fun stopLocationUpdates() {
         fusedLocationClient.removeLocationUpdates(locationCallback)
+    }
+
+    private fun setupActivityRecognition() {
+        val transitions = mutableListOf<ActivityTransition>()
+        transitions.add(ActivityTransition.Builder()
+            .setActivityType(DetectedActivity.STILL)
+            .setActivityTransition(ActivityTransition.ACTIVITY_TRANSITION_ENTER)
+            .build())
+        transitions.add(ActivityTransition.Builder()
+            .setActivityType(DetectedActivity.STILL)
+            .setActivityTransition(ActivityTransition.ACTIVITY_TRANSITION_EXIT)
+            .build())
+            
+        val request = ActivityTransitionRequest(transitions)
+        
+        val intent = Intent(this, SafetyService::class.java).apply {
+            action = ACTION_ACTIVITY_TRANSITION
+        }
+        // Use FLAG_UPDATE_CURRENT and FLAG_MUTABLE as required by newer Android versions for pending intents that get data.
+        activityPendingIntent = PendingIntent.getService(this, 0, intent, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_MUTABLE)
+        
+        try {
+            ActivityRecognition.getClient(this)
+                .requestActivityTransitionUpdates(request, activityPendingIntent!!)
+                .addOnSuccessListener {
+                    Log.d("SafetyService", "Activity transitions registered success")
+                }
+                .addOnFailureListener {
+                    Log.e("SafetyService", "Activity transitions registered fail", it)
+                }
+        } catch (e: SecurityException) {
+            Log.e("SafetyService", "Activity permission missing", e)
+        }
     }
 
     private fun initSpeechRecognizer() {
@@ -256,13 +464,17 @@ class SafetyService : Service(), RecognitionListener {
 
     override fun onError(error: Int) {
         if (isListening) {
+             consecutiveSpeechErrors++
+             backoffDelayMs = (backoffDelayMs * 1.5).toLong().coerceAtMost(30000L) // Max 30 seconds
              android.os.Handler(mainLooper).postDelayed({
                  startListening()
-             }, 1000)
+             }, backoffDelayMs)
         }
     }
 
     override fun onResults(results: Bundle?) {
+        consecutiveSpeechErrors = 0
+        backoffDelayMs = 1000L
         val matches = results?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
         processMatches(matches, isPartial = false)
         if (isListening) startListening()
@@ -293,8 +505,8 @@ class SafetyService : Service(), RecognitionListener {
                 for (match in it) {
                     val lowerMatch = match.lowercase()
                     for (trigger in triggerPhrases) {
-                        if (lowerMatch.contains(trigger.phrase.lowercase())) {
-                            broadcastLog("MATCH FOUND: \"$match\" triggered \"${trigger.phrase}\" (${trigger.severity})")
+                        if (isFuzzyMatch(lowerMatch, trigger.phrase.lowercase(), trigger.sensitivity)) {
+                            broadcastLog("MATCH FOUND: \"$match\" triggered \"${trigger.phrase}\" (${trigger.severity}, req. sens: ${trigger.sensitivity})")
                             handleTrigger(trigger)
                             return
                         }
@@ -302,6 +514,45 @@ class SafetyService : Service(), RecognitionListener {
                 }
             }
         }
+    }
+
+    private fun isFuzzyMatch(transcript: String, trigger: String, sensitivity: Float): Boolean {
+        if (transcript.contains(trigger)) return true
+        if (sensitivity >= 1.0f) return false
+        
+        val triggerWords = trigger.split(" ")
+        val transcriptWords = transcript.split(" ")
+        if (transcriptWords.size < triggerWords.size) return false
+        
+        for (i in 0 .. transcriptWords.size - triggerWords.size) {
+            val window = transcriptWords.subList(i, i + triggerWords.size).joinToString(" ")
+            val maxLen = Math.max(window.length, trigger.length)
+            if (maxLen == 0) continue
+            val dist = levenshteinDistance(window, trigger)
+            val sim = 1.0f - (dist.toFloat() / maxLen.toFloat())
+            if (sim >= sensitivity) return true
+        }
+        return false
+    }
+
+    private fun levenshteinDistance(lhs: CharSequence, rhs: CharSequence): Int {
+        val len0 = lhs.length + 1
+        val len1 = rhs.length + 1
+        var cost = IntArray(len0)
+        var newcost = IntArray(len0)
+        for (i in 0 until len0) cost[i] = i
+        for (j in 1 until len1) {
+            newcost[0] = j
+            for (i in 1 until len0) {
+                val match = if (lhs[i - 1] == rhs[j - 1]) 0 else 1
+                val costReplace = cost[i - 1] + match
+                val costInsert = cost[i] + 1
+                val costDelete = newcost[i - 1] + 1
+                newcost[i] = Math.min(Math.min(costInsert, costDelete), costReplace)
+            }
+            val swap = cost; cost = newcost; newcost = swap
+        }
+        return cost[len0 - 1]
     }
 
     private fun handleTrigger(trigger: TriggerPhrase) {
